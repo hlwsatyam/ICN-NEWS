@@ -577,22 +577,96 @@ const JoinForm = ({ onLogin, onNav }) => {
   )
 }
 
+// ============ PAYOUT REQUEST DIALOG ============
+const PayoutDialog = ({ token, walletBalance, onClose }) => {
+  const [form, setForm] = useState({ amount: '', method: 'upi', upiId: '', accountNumber: '', ifsc: '', accountHolder: '', notes: '' })
+  const [submitting, setSubmitting] = useState(false)
+
+  const submit = async () => {
+    setSubmitting(true)
+    const r = await fetch(`${API}/payouts`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: JSON.stringify(form)
+    }).then(r => r.json())
+    setSubmitting(false)
+    if (r.payout) { toast.success(r.message || 'Payout requested!'); onClose(true) }
+    else toast.error(r.error || 'Failed')
+  }
+
+  return (
+    <Dialog open onOpenChange={() => onClose(false)}>
+      <DialogContent className="max-w-md bg-zinc-950 border-zinc-800 text-white">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2 text-xl"><Wallet className="h-5 w-5 text-green-500" /> Request Withdrawal</DialogTitle>
+        </DialogHeader>
+        <div className="space-y-4">
+          <div className="bg-green-950/30 border border-green-900 rounded-lg p-3 text-sm">
+            <p className="text-zinc-400 text-xs">Available Balance</p>
+            <p className="text-2xl font-black text-green-400">₹{walletBalance.toLocaleString()}</p>
+          </div>
+
+          <div>
+            <label className="text-sm font-semibold block mb-1">Amount (min ₹100)</label>
+            <Input type="number" value={form.amount} onChange={e => setForm({ ...form, amount: e.target.value })} placeholder="500" max={walletBalance} className="bg-zinc-900 border-zinc-800 text-white" />
+          </div>
+
+          <div>
+            <label className="text-sm font-semibold block mb-2">Method</label>
+            <div className="flex gap-2">
+              <Button onClick={() => setForm({ ...form, method: 'upi' })} className={`flex-1 ${form.method === 'upi' ? 'bg-red-600 hover:bg-red-700' : 'bg-zinc-900 hover:bg-zinc-800'}`}>UPI</Button>
+              <Button onClick={() => setForm({ ...form, method: 'bank' })} className={`flex-1 ${form.method === 'bank' ? 'bg-red-600 hover:bg-red-700' : 'bg-zinc-900 hover:bg-zinc-800'}`}>Bank Transfer</Button>
+            </div>
+          </div>
+
+          {form.method === 'upi' ? (
+            <div>
+              <label className="text-sm font-semibold block mb-1">UPI ID</label>
+              <Input value={form.upiId} onChange={e => setForm({ ...form, upiId: e.target.value })} placeholder="yourname@paytm" className="bg-zinc-900 border-zinc-800 text-white" />
+            </div>
+          ) : (
+            <>
+              <Input value={form.accountHolder} onChange={e => setForm({ ...form, accountHolder: e.target.value })} placeholder="Account Holder Name" className="bg-zinc-900 border-zinc-800 text-white" />
+              <Input value={form.accountNumber} onChange={e => setForm({ ...form, accountNumber: e.target.value })} placeholder="Account Number" className="bg-zinc-900 border-zinc-800 text-white" />
+              <Input value={form.ifsc} onChange={e => setForm({ ...form, ifsc: e.target.value.toUpperCase() })} placeholder="IFSC Code (e.g. HDFC0001234)" className="bg-zinc-900 border-zinc-800 text-white font-mono" />
+            </>
+          )}
+
+          <Textarea value={form.notes} onChange={e => setForm({ ...form, notes: e.target.value })} placeholder="Notes (optional)" className="bg-zinc-900 border-zinc-800 text-white" rows={2} />
+
+          <p className="text-xs text-zinc-500">⚠️ Amount will be held in escrow until admin approves. Refunded to wallet if rejected. Processing time: 1-3 business days.</p>
+
+          <div className="flex gap-2">
+            <Button onClick={() => onClose(false)} variant="outline" className="flex-1 border-zinc-800 bg-zinc-900 text-white hover:bg-zinc-800">Cancel</Button>
+            <Button onClick={submit} disabled={submitting} className="flex-1 bg-green-600 hover:bg-green-700">
+              {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Submit Request'}
+            </Button>
+          </div>
+        </div>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
 // ============ DASHBOARD ============
 const Dashboard = ({ user, token }) => {
   const [stats, setStats] = useState({})
   const [myNews, setMyNews] = useState([])
   const [creating, setCreating] = useState(false)
+  const [showPayout, setShowPayout] = useState(false)
+  const [payouts, setPayouts] = useState([])
   const [refData, setRefData] = useState({ referrals: [], totalEarned: 0, totalReferrals: 0, referralCode: user.referralCode, walletBalance: user.walletBalance || 0 })
 
   const loadData = async () => {
-    const [s, n, r] = await Promise.all([
+    const [s, n, r, p] = await Promise.all([
       fetch(`${API}/stats`, { headers: { Authorization: `Bearer ${token}` } }).then(r => r.json()),
       fetch(`${API}/news?status=all&reporterId=${user.id}`).then(r => r.json()),
-      fetch(`${API}/referrals`, { headers: { Authorization: `Bearer ${token}` } }).then(r => r.json())
+      fetch(`${API}/referrals`, { headers: { Authorization: `Bearer ${token}` } }).then(r => r.json()),
+      fetch(`${API}/payouts`, { headers: { Authorization: `Bearer ${token}` } }).then(r => r.json())
     ])
     setStats(s)
     setMyNews(n.news || [])
     setRefData(r)
+    setPayouts(p.payouts || [])
   }
   useEffect(() => { loadData() }, [])
 
@@ -661,7 +735,7 @@ const Dashboard = ({ user, token }) => {
 
       {/* Income Wallet */}
       <Card className="bg-gradient-to-br from-green-950/40 to-zinc-950 border-green-900/40">
-        <CardContent className="p-6 flex items-center justify-between">
+        <CardContent className="p-6 flex items-center justify-between flex-wrap gap-3">
           <div className="flex items-center gap-3">
             <Wallet className="h-10 w-10 text-green-500" />
             <div>
@@ -669,13 +743,45 @@ const Dashboard = ({ user, token }) => {
               <p className="text-3xl font-black text-white">₹{(refData.walletBalance || 0).toLocaleString()}</p>
             </div>
           </div>
-          <div className="text-right text-xs text-zinc-500 space-y-1">
-            <p>Referral Earnings: ₹{(refData.totalEarned || 0).toLocaleString()}</p>
-            <p>Total Referrals: {refData.totalReferrals}</p>
-            <p>Ad Income: ₹{Math.max(0, (refData.walletBalance || 0) - (refData.totalEarned || 0)).toLocaleString()}</p>
+          <div className="flex flex-col gap-2">
+            <Button onClick={() => setShowPayout(true)} disabled={(refData.walletBalance || 0) < 100} className="bg-green-600 hover:bg-green-700 shadow-lg shadow-green-900/50">
+              <Download className="h-4 w-4 mr-2" /> Withdraw to UPI/Bank
+            </Button>
+            <div className="text-right text-xs text-zinc-500 space-y-0.5">
+              <p>Referral Earnings: ₹{(refData.totalEarned || 0).toLocaleString()}</p>
+              <p>Total Referrals: {refData.totalReferrals}</p>
+            </div>
           </div>
         </CardContent>
       </Card>
+
+      {/* Payout History */}
+      {payouts.length > 0 && (
+        <Card className="bg-zinc-950 border-zinc-800">
+          <CardHeader>
+            <CardTitle className="text-white flex items-center gap-2 text-base"><Download className="h-4 w-4 text-green-500" /> Withdrawal History</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-2">
+            {payouts.map(p => (
+              <div key={p.id} className="flex items-center justify-between p-2 bg-zinc-900 rounded text-sm">
+                <div>
+                  <p className="text-white font-semibold">₹{p.amount.toLocaleString()} via {p.method.toUpperCase()}</p>
+                  <p className="text-xs text-zinc-500">
+                    {p.method === 'upi' ? p.upiId : `Acc: ****${p.accountNumber?.slice(-4)}`}
+                    {' • '}{fmtTime(p.createdAt)}
+                  </p>
+                  {p.transactionId && <p className="text-xs text-green-500">TXN: {p.transactionId}</p>}
+                </div>
+                <Badge className={
+                  p.status === 'paid' ? 'bg-green-700' :
+                  p.status === 'approved' ? 'bg-blue-700' :
+                  p.status === 'rejected' ? 'bg-red-700' : 'bg-yellow-700'
+                }>{p.status}</Badge>
+              </div>
+            ))}
+          </CardContent>
+        </Card>
+      )}
 
       {/* Referral System */}
       <Card className="bg-gradient-to-br from-purple-950/40 via-zinc-950 to-zinc-950 border-purple-900/40">
@@ -763,6 +869,7 @@ const Dashboard = ({ user, token }) => {
       </div>
 
       {creating && <NewsEditor token={token} user={user} onClose={() => { setCreating(false); loadData() }} />}
+      {showPayout && <PayoutDialog token={token} walletBalance={refData.walletBalance || 0} onClose={(refresh) => { setShowPayout(false); if (refresh) loadData() }} />}
     </div>
   )
 }
@@ -949,18 +1056,38 @@ const AdminPanel = ({ token, user }) => {
   const [stats, setStats] = useState({})
   const [breaking, setBreaking] = useState([])
   const [newBreak, setNewBreak] = useState('')
+  const [payouts, setPayouts] = useState([])
+  const [payoutSummary, setPayoutSummary] = useState({})
 
   const load = async () => {
-    const [n, s, b] = await Promise.all([
+    const [n, s, b, p] = await Promise.all([
       fetch(`${API}/news?status=pending`).then(r => r.json()),
       fetch(`${API}/stats`, { headers: { Authorization: `Bearer ${token}` } }).then(r => r.json()),
-      fetch(`${API}/breaking`).then(r => r.json())
+      fetch(`${API}/breaking`).then(r => r.json()),
+      fetch(`${API}/payouts?all=true`, { headers: { Authorization: `Bearer ${token}` } }).then(r => r.json())
     ])
     setPending(n.news || [])
     setStats(s)
     setBreaking(b.breaking || [])
+    setPayouts(p.payouts || [])
+    setPayoutSummary(p.summary || {})
   }
   useEffect(() => { load() }, [])
+
+  const processPayout = async (id, status) => {
+    let txn = null
+    if (status === 'paid') {
+      txn = prompt('Enter Transaction ID / UTR Number:')
+      if (!txn) return
+    }
+    const note = status === 'rejected' ? prompt('Reason for rejection:') : null
+    await fetch(`${API}/payouts/${id}`, {
+      method: 'PATCH', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ status, transactionId: txn, adminNote: note })
+    })
+    toast.success(`Payout ${status}`)
+    load()
+  }
 
   const moderate = async (id, status) => {
     await fetch(`${API}/news/${id}`, {
@@ -1017,6 +1144,7 @@ const AdminPanel = ({ token, user }) => {
         <TabsList className="bg-zinc-950 border border-zinc-800">
           <TabsTrigger value="pending" className="data-[state=active]:bg-red-600">Pending News ({pending.length})</TabsTrigger>
           <TabsTrigger value="breaking" className="data-[state=active]:bg-red-600">Breaking News</TabsTrigger>
+          <TabsTrigger value="payouts" className="data-[state=active]:bg-red-600">Payouts ({payouts.filter(p => p.status === 'pending').length})</TabsTrigger>
           <TabsTrigger value="analytics" className="data-[state=active]:bg-red-600">Analytics</TabsTrigger>
         </TabsList>
 
@@ -1059,6 +1187,71 @@ const AdminPanel = ({ token, user }) => {
 
         <TabsContent value="analytics" className="mt-4">
           <AnalyticsPanel token={token} />
+        </TabsContent>
+
+        <TabsContent value="payouts" className="mt-4 space-y-3">
+          <div className="grid grid-cols-3 gap-3">
+            <Card className="bg-zinc-950 border-zinc-800">
+              <CardContent className="p-3">
+                <p className="text-xs text-zinc-500 uppercase">Total Requested</p>
+                <p className="text-2xl font-black text-white">₹{(payoutSummary.totalRequested || 0).toLocaleString()}</p>
+              </CardContent>
+            </Card>
+            <Card className="bg-zinc-950 border-zinc-800">
+              <CardContent className="p-3">
+                <p className="text-xs text-zinc-500 uppercase">Pending</p>
+                <p className="text-2xl font-black text-yellow-500">₹{(payoutSummary.totalPending || 0).toLocaleString()}</p>
+              </CardContent>
+            </Card>
+            <Card className="bg-zinc-950 border-zinc-800">
+              <CardContent className="p-3">
+                <p className="text-xs text-zinc-500 uppercase">Paid Out</p>
+                <p className="text-2xl font-black text-green-500">₹{(payoutSummary.totalPaid || 0).toLocaleString()}</p>
+              </CardContent>
+            </Card>
+          </div>
+
+          {payouts.length === 0 && <p className="text-zinc-500 text-center py-12">No payout requests yet.</p>}
+          {payouts.map(p => (
+            <Card key={p.id} className="bg-zinc-950 border-zinc-800">
+              <CardContent className="p-4 flex flex-col md:flex-row gap-4 md:items-center">
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 mb-1">
+                    <Avatar className="h-8 w-8"><AvatarFallback className="bg-red-700 text-xs">{p.userName?.[0]}</AvatarFallback></Avatar>
+                    <span className="font-bold text-white">{p.userName}</span>
+                    <Badge className={
+                      p.status === 'paid' ? 'bg-green-700' :
+                      p.status === 'approved' ? 'bg-blue-700' :
+                      p.status === 'rejected' ? 'bg-red-700' : 'bg-yellow-700'
+                    }>{p.status}</Badge>
+                  </div>
+                  <p className="text-2xl font-black text-green-400">₹{p.amount.toLocaleString()} <span className="text-xs text-zinc-500 font-normal">via {p.method.toUpperCase()}</span></p>
+                  <div className="text-xs text-zinc-400 mt-1 space-y-0.5">
+                    {p.method === 'upi' ? <p>UPI: <span className="font-mono text-white">{p.upiId}</span></p> : (
+                      <>
+                        <p>Holder: <span className="text-white">{p.accountHolder}</span></p>
+                        <p>A/C: <span className="font-mono text-white">{p.accountNumber}</span> • IFSC: <span className="font-mono text-white">{p.ifsc}</span></p>
+                      </>
+                    )}
+                    <p>📱 {p.userMobile} • {fmtTime(p.createdAt)}</p>
+                    {p.notes && <p className="italic">"{p.notes}"</p>}
+                    {p.transactionId && <p className="text-green-500">TXN: <span className="font-mono">{p.transactionId}</span></p>}
+                    {p.adminNote && <p className="text-red-400">Admin Note: {p.adminNote}</p>}
+                  </div>
+                </div>
+                {p.status === 'pending' && (
+                  <div className="flex md:flex-col gap-2">
+                    <Button onClick={() => processPayout(p.id, 'paid')} size="sm" className="bg-green-700 hover:bg-green-800">
+                      <CheckCircle2 className="h-4 w-4 mr-1" /> Mark Paid
+                    </Button>
+                    <Button onClick={() => processPayout(p.id, 'rejected')} size="sm" variant="destructive">
+                      <XCircle className="h-4 w-4 mr-1" /> Reject
+                    </Button>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          ))}
         </TabsContent>
       </Tabs>
     </div>

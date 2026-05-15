@@ -331,6 +331,87 @@ async function handler(request, { params }) {
       });
     }
 
+    // ============ PAYOUTS (Withdrawal) ============
+    if (path === 'payouts' && method === 'POST') {
+      const auth = getAuthUser(request);
+      if (!auth) return json({ error: 'Unauthorized' }, 401);
+      const body = await request.json();
+      const { amount, method: payMethod, upiId, accountNumber, ifsc, accountHolder, notes } = body;
+      const amt = parseFloat(amount);
+      if (!amt || amt < 100) return json({ error: 'Minimum payout is ₹100' }, 400);
+      if (payMethod === 'upi' && !upiId) return json({ error: 'UPI ID required' }, 400);
+      if (payMethod === 'bank' && (!accountNumber || !ifsc || !accountHolder)) return json({ error: 'Bank details incomplete' }, 400);
+
+      const user = await db.collection('users').findOne({ id: auth.id });
+      if (!user) return json({ error: 'User not found' }, 404);
+      if ((user.walletBalance || 0) < amt) return json({ error: 'Insufficient wallet balance' }, 400);
+
+      // Deduct from wallet immediately (escrow)
+      await db.collection('users').updateOne({ id: auth.id }, { $inc: { walletBalance: -amt } });
+
+      const payout = {
+        id: uuid(),
+        userId: auth.id,
+        userName: user.name,
+        userEmail: user.email,
+        userMobile: user.mobile,
+        amount: amt,
+        method: payMethod,
+        upiId: payMethod === 'upi' ? upiId : null,
+        accountNumber: payMethod === 'bank' ? accountNumber : null,
+        ifsc: payMethod === 'bank' ? ifsc : null,
+        accountHolder: payMethod === 'bank' ? accountHolder : null,
+        status: 'pending',
+        notes: notes || '',
+        createdAt: new Date(),
+        processedAt: null,
+        adminNote: null,
+        transactionId: null
+      };
+      await db.collection('payouts').insertOne(payout);
+      const { _id, ...safe } = payout;
+      return json({ payout: safe, message: 'Payout request submitted. Amount held in escrow.' });
+    }
+
+    if (path === 'payouts' && method === 'GET') {
+      const auth = getAuthUser(request);
+      if (!auth) return json({ error: 'Unauthorized' }, 401);
+      const url = new URL(request.url);
+      const all = url.searchParams.get('all') === 'true';
+      const q = (all && auth.role === 'admin') ? {} : { userId: auth.id };
+      const payouts = await db.collection('payouts').find(q, { projection: { _id: 0 } }).sort({ createdAt: -1 }).limit(100).toArray();
+      const summary = {
+        totalRequested: payouts.reduce((s, p) => s + p.amount, 0),
+        totalPaid: payouts.filter(p => p.status === 'paid').reduce((s, p) => s + p.amount, 0),
+        totalPending: payouts.filter(p => p.status === 'pending').reduce((s, p) => s + p.amount, 0)
+      };
+      return json({ payouts, summary });
+    }
+
+    if (path.startsWith('payouts/') && method === 'PATCH') {
+      const auth = getAuthUser(request);
+      if (!auth || auth.role !== 'admin') return json({ error: 'Forbidden' }, 403);
+      const id = path.split('/')[1];
+      const body = await request.json();
+      const { status, transactionId, adminNote } = body;
+      const payout = await db.collection('payouts').findOne({ id });
+      if (!payout) return json({ error: 'Not found' }, 404);
+
+      const update = { status, adminNote: adminNote || null, processedAt: new Date() };
+      if (transactionId) update.transactionId = transactionId;
+
+      // If rejected, refund to wallet
+      if (status === 'rejected' && payout.status !== 'rejected') {
+        await db.collection('users').updateOne({ id: payout.userId }, { $inc: { walletBalance: payout.amount } });
+      }
+      // If reverting from rejected to paid, deduct again
+      if (status === 'paid' && payout.status === 'rejected') {
+        await db.collection('users').updateOne({ id: payout.userId }, { $inc: { walletBalance: -payout.amount } });
+      }
+      await db.collection('payouts').updateOne({ id }, { $set: update });
+      return json({ ok: true });
+    }
+
     // ============ HEALTH ============
     if (path === '' || path === 'health') {
       return json({ status: 'ok', app: 'Indian Crime News API', timestamp: new Date() });
