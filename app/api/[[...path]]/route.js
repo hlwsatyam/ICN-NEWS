@@ -1,0 +1,310 @@
+import { NextResponse } from 'next/server';
+import { getDb } from '@/lib/db';
+import { signToken, hashPassword, comparePassword, getAuthUser } from '@/lib/auth';
+import { generateText } from '@/lib/llm';
+import { seedDatabase, INDIAN_STATES, CATEGORIES } from '@/lib/seed';
+import { v4 as uuid } from 'uuid';
+import Razorpay from 'razorpay';
+import crypto from 'crypto';
+
+const json = (data, status = 200) => NextResponse.json(data, { status });
+
+// Auto-seed on first request
+let seeded = false;
+async function ensureSeeded() {
+  if (seeded) return;
+  try { await seedDatabase(); seeded = true; } catch (e) { console.error('seed err', e); }
+}
+
+async function handler(request, { params }) {
+  await ensureSeeded();
+  const path = (params?.path || []).join('/');
+  const method = request.method;
+  const db = await getDb();
+
+  try {
+    // ============ AUTH ============
+    if (path === 'auth/register' && method === 'POST') {
+      const body = await request.json();
+      const { email, password, name, mobile, state, district, role = 'reporter' } = body;
+      if (!email || !password || !name) return json({ error: 'Missing fields' }, 400);
+      const exists = await db.collection('users').findOne({ email });
+      if (exists) return json({ error: 'Email already registered' }, 400);
+      const id = uuid();
+      const user = {
+        id, email, name, mobile, state, district, role,
+        password: await hashPassword(password),
+        designation: role === 'reporter' ? 'Reporter' : 'User',
+        photo: `https://api.dicebear.com/7.x/initials/svg?seed=${encodeURIComponent(name)}`,
+        walletBalance: 0,
+        referralCode: name.toUpperCase().replace(/\s/g, '').slice(0, 6) + Math.floor(Math.random() * 1000),
+        paymentStatus: 'pending',
+        createdAt: new Date()
+      };
+      await db.collection('users').insertOne(user);
+      const token = signToken({ id, email, role });
+      const { password: _, ...safe } = user;
+      return json({ token, user: safe });
+    }
+
+    if (path === 'auth/login' && method === 'POST') {
+      const { email, password } = await request.json();
+      const user = await db.collection('users').findOne({ email });
+      if (!user) return json({ error: 'Invalid credentials' }, 401);
+      const ok = await comparePassword(password, user.password);
+      if (!ok) return json({ error: 'Invalid credentials' }, 401);
+      const token = signToken({ id: user.id, email: user.email, role: user.role });
+      const { password: _, _id, ...safe } = user;
+      return json({ token, user: safe });
+    }
+
+    if (path === 'auth/me' && method === 'GET') {
+      const auth = getAuthUser(request);
+      if (!auth) return json({ error: 'Unauthorized' }, 401);
+      const user = await db.collection('users').findOne({ id: auth.id });
+      if (!user) return json({ error: 'Not found' }, 404);
+      const { password, _id, ...safe } = user;
+      return json({ user: safe });
+    }
+
+    // ============ NEWS ============
+    if (path === 'news' && method === 'GET') {
+      const url = new URL(request.url);
+      const state = url.searchParams.get('state');
+      const district = url.searchParams.get('district');
+      const category = url.searchParams.get('category');
+      const status = url.searchParams.get('status') || 'approved';
+      const search = url.searchParams.get('q');
+      const reporterId = url.searchParams.get('reporterId');
+      const page = parseInt(url.searchParams.get('page') || '1');
+      const limit = parseInt(url.searchParams.get('limit') || '8');
+      const q = {};
+      if (status !== 'all') q.status = status;
+      if (state) q.state = state;
+      if (district) q.district = district;
+      if (category) q.category = category;
+      if (reporterId) q.reporterId = reporterId;
+      if (search) q.headline = { $regex: search, $options: 'i' };
+      const total = await db.collection('news').countDocuments(q);
+      const news = await db.collection('news')
+        .find(q, { projection: { _id: 0 } })
+        .sort({ createdAt: -1 })
+        .skip((page - 1) * limit)
+        .limit(limit)
+        .toArray();
+      return json({ news, total, page, hasMore: page * limit < total });
+    }
+
+    if (path.startsWith('news/') && path.split('/').length === 2 && method === 'GET') {
+      const id = path.split('/')[1];
+      const n = await db.collection('news').findOne({ id }, { projection: { _id: 0 } });
+      if (!n) return json({ error: 'Not found' }, 404);
+      await db.collection('news').updateOne({ id }, { $inc: { views: 1 } });
+      return json({ news: n });
+    }
+
+    if (path === 'news' && method === 'POST') {
+      const auth = getAuthUser(request);
+      if (!auth) return json({ error: 'Unauthorized' }, 401);
+      const body = await request.json();
+      const user = await db.collection('users').findOne({ id: auth.id });
+      const id = uuid();
+      const news = {
+        id,
+        headline: body.headline,
+        summary: body.summary || '',
+        content: body.content,
+        category: body.category,
+        state: body.state,
+        district: body.district,
+        city: body.city || '',
+        images: body.images || [],
+        videoUrl: body.videoUrl || '',
+        metaTitle: body.metaTitle || body.headline,
+        metaDescription: body.metaDescription || body.summary || '',
+        reporterId: auth.id,
+        reporterName: user?.name || 'Reporter',
+        reporterPhoto: user?.photo || '',
+        status: auth.role === 'admin' ? 'approved' : 'pending',
+        views: 0,
+        shares: 0,
+        trending: false,
+        createdAt: new Date(),
+        publishedAt: auth.role === 'admin' ? new Date() : null
+      };
+      await db.collection('news').insertOne(news);
+      const { _id, ...safe } = news;
+      return json({ news: safe });
+    }
+
+    if (path.startsWith('news/') && method === 'PATCH') {
+      const auth = getAuthUser(request);
+      if (!auth) return json({ error: 'Unauthorized' }, 401);
+      const id = path.split('/')[1];
+      const body = await request.json();
+      const update = {};
+      if (auth.role === 'admin') {
+        if (body.status) update.status = body.status;
+        if (body.trending !== undefined) update.trending = body.trending;
+        if (body.status === 'approved') update.publishedAt = new Date();
+      }
+      await db.collection('news').updateOne({ id }, { $set: update });
+      return json({ ok: true });
+    }
+
+    if (path.startsWith('news/') && method === 'DELETE') {
+      const auth = getAuthUser(request);
+      if (!auth) return json({ error: 'Unauthorized' }, 401);
+      const id = path.split('/')[1];
+      await db.collection('news').deleteOne({ id });
+      return json({ ok: true });
+    }
+
+    // ============ BREAKING NEWS ============
+    if (path === 'breaking' && method === 'GET') {
+      const items = await db.collection('breaking')
+        .find({ active: true }, { projection: { _id: 0 } })
+        .sort({ createdAt: -1 })
+        .limit(20)
+        .toArray();
+      return json({ breaking: items });
+    }
+
+    if (path === 'breaking' && method === 'POST') {
+      const auth = getAuthUser(request);
+      if (!auth || auth.role !== 'admin') return json({ error: 'Forbidden' }, 403);
+      const { text } = await request.json();
+      const item = { id: uuid(), text, active: true, createdAt: new Date() };
+      await db.collection('breaking').insertOne(item);
+      const { _id, ...safe } = item;
+      return json({ breaking: safe });
+    }
+
+    if (path.startsWith('breaking/') && method === 'DELETE') {
+      const auth = getAuthUser(request);
+      if (!auth || auth.role !== 'admin') return json({ error: 'Forbidden' }, 403);
+      const id = path.split('/')[1];
+      await db.collection('breaking').deleteOne({ id });
+      return json({ ok: true });
+    }
+
+    // ============ AI ============
+    if (path === 'ai/generate-headline' && method === 'POST') {
+      const { content, state, district, category } = await request.json();
+      const sys = 'You are an expert Indian crime news headline writer. Generate ONE punchy bilingual (Hindi + English mix) headline in less than 18 words. Use \u20b9 for rupees. NO quotes, NO numbering, just the headline text.';
+      const prompt = `Write a viral, breaking-news-style headline for this crime news story.\nState: ${state || 'India'}\nDistrict: ${district || ''}\nCategory: ${category || 'crime'}\nStory content: ${content?.slice(0, 1500)}\n\nReturn only the headline.`;
+      const headline = await generateText(prompt, sys);
+      return json({ headline: headline.trim().replace(/^["']|["']$/g, '') });
+    }
+
+    if (path === 'ai/generate-meta' && method === 'POST') {
+      const { headline, content } = await request.json();
+      const sys = 'You are an SEO expert. Output strict JSON only, no markdown.';
+      const prompt = `For this news article, generate SEO meta data. Return ONLY valid JSON: {"metaTitle":"...","metaDescription":"...","keywords":["...","..."]}\nMax 60 chars metaTitle, max 155 chars metaDescription, 5-8 keywords.\nHeadline: ${headline}\nContent: ${content?.slice(0, 1000)}`;
+      const out = await generateText(prompt, sys);
+      try {
+        const cleaned = out.replace(/```json|```/g, '').trim();
+        return json(JSON.parse(cleaned));
+      } catch {
+        return json({ metaTitle: headline, metaDescription: content?.slice(0, 150) || '', keywords: [] });
+      }
+    }
+
+    if (path === 'ai/summarize' && method === 'POST') {
+      const { content } = await request.json();
+      const sys = 'You write concise crime news summaries in Hindi-English mix (Hinglish). Max 3 sentences.';
+      const summary = await generateText(`Summarize: ${content?.slice(0, 2000)}`, sys);
+      return json({ summary: summary.trim() });
+    }
+
+    // ============ STATES / CATEGORIES ============
+    if (path === 'states' && method === 'GET') {
+      return json({ states: INDIAN_STATES });
+    }
+    if (path === 'categories' && method === 'GET') {
+      return json({ categories: CATEGORIES });
+    }
+
+    // ============ STATS ============
+    if (path === 'stats' && method === 'GET') {
+      const auth = getAuthUser(request);
+      if (!auth) return json({ error: 'Unauthorized' }, 401);
+      let q = {};
+      if (auth.role === 'reporter') q.reporterId = auth.id;
+      const total = await db.collection('news').countDocuments(q);
+      const approved = await db.collection('news').countDocuments({ ...q, status: 'approved' });
+      const pending = await db.collection('news').countDocuments({ ...q, status: 'pending' });
+      const rejected = await db.collection('news').countDocuments({ ...q, status: 'rejected' });
+      const viewsAgg = await db.collection('news').aggregate([
+        { $match: q },
+        { $group: { _id: null, total: { $sum: '$views' } } }
+      ]).toArray();
+      const totalUsers = await db.collection('users').countDocuments({});
+      const totalReporters = await db.collection('users').countDocuments({ role: 'reporter' });
+      return json({
+        total, approved, pending, rejected,
+        totalViews: viewsAgg[0]?.total || 0,
+        totalUsers, totalReporters
+      });
+    }
+
+    // ============ PAYMENT (Razorpay) ============
+    if (path === 'payment/create-order' && method === 'POST') {
+      const { amount = 500 } = await request.json();
+      try {
+        const rzp = new Razorpay({
+          key_id: process.env.RAZORPAY_KEY_ID,
+          key_secret: process.env.RAZORPAY_KEY_SECRET
+        });
+        const order = await rzp.orders.create({
+          amount: amount * 100,
+          currency: 'INR',
+          receipt: `rcpt_${Date.now()}`
+        });
+        return json({ orderId: order.id, amount: order.amount, keyId: process.env.RAZORPAY_KEY_ID });
+      } catch (e) {
+        return json({ error: 'Razorpay not configured', detail: e.message }, 500);
+      }
+    }
+
+    if (path === 'payment/verify' && method === 'POST') {
+      const { razorpay_order_id, razorpay_payment_id, razorpay_signature, userId } = await request.json();
+      const hmac = crypto.createHmac('sha256', process.env.RAZORPAY_KEY_SECRET || '');
+      hmac.update(`${razorpay_order_id}|${razorpay_payment_id}`);
+      const expected = hmac.digest('hex');
+      if (expected !== razorpay_signature) return json({ error: 'Invalid signature' }, 400);
+      if (userId) {
+        await db.collection('users').updateOne({ id: userId }, { $set: { paymentStatus: 'paid', joinedAt: new Date() } });
+      }
+      await db.collection('payments').insertOne({
+        id: uuid(), userId, orderId: razorpay_order_id, paymentId: razorpay_payment_id,
+        amount: 500, status: 'paid', createdAt: new Date()
+      });
+      return json({ ok: true });
+    }
+
+    // ============ USERS (admin) ============
+    if (path === 'users' && method === 'GET') {
+      const auth = getAuthUser(request);
+      if (!auth || auth.role !== 'admin') return json({ error: 'Forbidden' }, 403);
+      const users = await db.collection('users').find({}, { projection: { password: 0, _id: 0 } }).toArray();
+      return json({ users });
+    }
+
+    // ============ HEALTH ============
+    if (path === '' || path === 'health') {
+      return json({ status: 'ok', app: 'Indian Crime News API', timestamp: new Date() });
+    }
+
+    return json({ error: 'Not found', path }, 404);
+  } catch (e) {
+    console.error('API error:', e);
+    return json({ error: e.message || 'Server error' }, 500);
+  }
+}
+
+export const GET = handler;
+export const POST = handler;
+export const PUT = handler;
+export const PATCH = handler;
+export const DELETE = handler;
