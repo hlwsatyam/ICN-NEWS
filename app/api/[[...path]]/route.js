@@ -27,10 +27,18 @@ async function handler(request, { params }) {
     // ============ AUTH ============
     if (path === 'auth/register' && method === 'POST') {
       const body = await request.json();
-      const { email, password, name, mobile, state, district, role = 'reporter' } = body;
+      const { email, password, name, mobile, state, district, role = 'reporter', referralCode: referredByCode } = body;
       if (!email || !password || !name) return json({ error: 'Missing fields' }, 400);
       const exists = await db.collection('users').findOne({ email });
       if (exists) return json({ error: 'Email already registered' }, 400);
+
+      // Lookup referrer
+      let referredBy = null;
+      if (referredByCode) {
+        const referrer = await db.collection('users').findOne({ referralCode: referredByCode });
+        if (referrer) referredBy = referrer.id;
+      }
+
       const id = uuid();
       const user = {
         id, email, name, mobile, state, district, role,
@@ -39,13 +47,25 @@ async function handler(request, { params }) {
         photo: `https://api.dicebear.com/7.x/initials/svg?seed=${encodeURIComponent(name)}`,
         walletBalance: 0,
         referralCode: name.toUpperCase().replace(/\s/g, '').slice(0, 6) + Math.floor(Math.random() * 1000),
+        referredBy,
         paymentStatus: 'pending',
         createdAt: new Date()
       };
       await db.collection('users').insertOne(user);
+
+      // Credit referrer
+      if (referredBy) {
+        const bonus = 100;
+        await db.collection('users').updateOne({ id: referredBy }, { $inc: { walletBalance: bonus } });
+        await db.collection('referrals').insertOne({
+          id: uuid(), referrerId: referredBy, referredUserId: id,
+          referredUserName: name, bonus, status: 'credited', createdAt: new Date()
+        });
+      }
+
       const token = signToken({ id, email, role });
       const { password: _, ...safe } = user;
-      return json({ token, user: safe });
+      return json({ token, user: safe, referralApplied: !!referredBy });
     }
 
     if (path === 'auth/login' && method === 'POST') {
@@ -290,6 +310,25 @@ async function handler(request, { params }) {
       if (!auth || auth.role !== 'admin') return json({ error: 'Forbidden' }, 403);
       const users = await db.collection('users').find({}, { projection: { password: 0, _id: 0 } }).toArray();
       return json({ users });
+    }
+
+    // ============ REFERRALS ============
+    if (path === 'referrals' && method === 'GET') {
+      const auth = getAuthUser(request);
+      if (!auth) return json({ error: 'Unauthorized' }, 401);
+      const referrals = await db.collection('referrals').find(
+        { referrerId: auth.id },
+        { projection: { _id: 0 } }
+      ).sort({ createdAt: -1 }).toArray();
+      const totalEarned = referrals.reduce((sum, r) => sum + (r.bonus || 0), 0);
+      const user = await db.collection('users').findOne({ id: auth.id });
+      return json({
+        referrals,
+        totalEarned,
+        totalReferrals: referrals.length,
+        referralCode: user?.referralCode || '',
+        walletBalance: user?.walletBalance || 0
+      });
     }
 
     // ============ HEALTH ============

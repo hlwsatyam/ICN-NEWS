@@ -431,12 +431,19 @@ const LoginForm = ({ onLogin, onNav }) => {
 
 // ============ JOIN FORM ============
 const JoinForm = ({ onLogin, onNav }) => {
-  const [form, setForm] = useState({ name: '', email: '', password: '', mobile: '', state: '', district: '' })
+  const [form, setForm] = useState({ name: '', email: '', password: '', mobile: '', state: '', district: '', referralCode: '' })
   const [states, setStates] = useState([])
   const [loading, setLoading] = useState(false)
   const [registered, setRegistered] = useState(null)
 
-  useEffect(() => { fetch(`${API}/states`).then(r => r.json()).then(d => setStates(d.states || [])) }, [])
+  useEffect(() => {
+    fetch(`${API}/states`).then(r => r.json()).then(d => setStates(d.states || []))
+    // Auto-fill referral from URL
+    if (typeof window !== 'undefined') {
+      const refFromUrl = new URLSearchParams(window.location.search).get('ref')
+      if (refFromUrl) setForm(f => ({ ...f, referralCode: refFromUrl }))
+    }
+  }, [])
   const districts = states.find(s => s.name === form.state)?.districts || []
 
   const submit = async () => {
@@ -552,6 +559,12 @@ const JoinForm = ({ onLogin, onNav }) => {
               </SelectContent>
             </Select>
           )}
+          <Input
+            placeholder="Referral Code (optional, earn referrer ₹100)"
+            value={form.referralCode}
+            onChange={e => setForm({ ...form, referralCode: e.target.value.toUpperCase() })}
+            className="bg-zinc-900 border-purple-900/50 text-white font-mono"
+          />
           <Button onClick={submit} disabled={loading} className="w-full bg-red-600 hover:bg-red-700">
             {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Register & Continue'}
           </Button>
@@ -569,16 +582,31 @@ const Dashboard = ({ user, token }) => {
   const [stats, setStats] = useState({})
   const [myNews, setMyNews] = useState([])
   const [creating, setCreating] = useState(false)
+  const [refData, setRefData] = useState({ referrals: [], totalEarned: 0, totalReferrals: 0, referralCode: user.referralCode, walletBalance: user.walletBalance || 0 })
 
   const loadData = async () => {
-    const [s, n] = await Promise.all([
+    const [s, n, r] = await Promise.all([
       fetch(`${API}/stats`, { headers: { Authorization: `Bearer ${token}` } }).then(r => r.json()),
-      fetch(`${API}/news?status=all&reporterId=${user.id}`).then(r => r.json())
+      fetch(`${API}/news?status=all&reporterId=${user.id}`).then(r => r.json()),
+      fetch(`${API}/referrals`, { headers: { Authorization: `Bearer ${token}` } }).then(r => r.json())
     ])
     setStats(s)
     setMyNews(n.news || [])
+    setRefData(r)
   }
   useEffect(() => { loadData() }, [])
+
+  const referralLink = typeof window !== 'undefined'
+    ? `${window.location.origin}/?ref=${refData.referralCode}`
+    : ''
+  const copyRef = () => {
+    navigator.clipboard.writeText(referralLink)
+    toast.success('Referral link copied! Share to earn ₹100 per signup.')
+  }
+  const shareWA = () => {
+    const text = `Join India's biggest crime news network as a Reporter! Earn money daily. Use my referral code: ${refData.referralCode} - ${referralLink}`
+    window.open(`https://wa.me/?text=${encodeURIComponent(text)}`, '_blank')
+  }
 
   const downloads = [
     { name: 'Press ID Card', icon: IdCard, color: 'from-red-600 to-red-800', url: `${API}/pdf/idcard/${user.id}` },
@@ -638,14 +666,61 @@ const Dashboard = ({ user, token }) => {
             <Wallet className="h-10 w-10 text-green-500" />
             <div>
               <p className="text-xs text-zinc-400 uppercase tracking-wider">Wallet Balance</p>
-              <p className="text-3xl font-black text-white">₹{(user.walletBalance || 0).toLocaleString()}</p>
+              <p className="text-3xl font-black text-white">₹{(refData.walletBalance || 0).toLocaleString()}</p>
             </div>
           </div>
           <div className="text-right text-xs text-zinc-500 space-y-1">
-            <p>Ad Income: ₹{Math.floor((user.walletBalance || 0) * 0.6).toLocaleString()}</p>
-            <p>Referral: ₹{Math.floor((user.walletBalance || 0) * 0.3).toLocaleString()}</p>
-            <p>Joining: ₹{Math.floor((user.walletBalance || 0) * 0.1).toLocaleString()}</p>
+            <p>Referral Earnings: ₹{(refData.totalEarned || 0).toLocaleString()}</p>
+            <p>Total Referrals: {refData.totalReferrals}</p>
+            <p>Ad Income: ₹{Math.max(0, (refData.walletBalance || 0) - (refData.totalEarned || 0)).toLocaleString()}</p>
           </div>
+        </CardContent>
+      </Card>
+
+      {/* Referral System */}
+      <Card className="bg-gradient-to-br from-purple-950/40 via-zinc-950 to-zinc-950 border-purple-900/40">
+        <CardHeader>
+          <CardTitle className="text-white flex items-center gap-2">
+            <Share2 className="h-5 w-5 text-purple-400" /> Referral Earnings
+            <Badge className="bg-purple-600 ml-2">₹100 per signup</Badge>
+          </CardTitle>
+          <CardDescription className="text-zinc-400">Share your unique link. Every reporter who joins via your code earns you ₹100 instantly.</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <div className="bg-zinc-900 rounded-lg p-3 space-y-2">
+            <div className="flex items-center gap-2">
+              <span className="text-xs text-zinc-500 uppercase">Your Code:</span>
+              <code className="font-mono font-bold text-purple-400 bg-purple-950/40 px-2 py-1 rounded">{refData.referralCode}</code>
+            </div>
+            <div className="flex items-center gap-2">
+              <Input readOnly value={referralLink} className="bg-zinc-950 border-zinc-800 text-xs text-zinc-300 font-mono" />
+              <Button onClick={copyRef} size="sm" className="bg-purple-600 hover:bg-purple-700 flex-shrink-0">
+                <Share2 className="h-4 w-4 mr-1" /> Copy
+              </Button>
+              <Button onClick={shareWA} size="sm" className="bg-green-600 hover:bg-green-700 flex-shrink-0">
+                <MessageCircle className="h-4 w-4 mr-1" /> WhatsApp
+              </Button>
+            </div>
+          </div>
+          {refData.referrals.length > 0 && (
+            <div>
+              <p className="text-sm font-semibold text-white mb-2">Your Referrals ({refData.totalReferrals})</p>
+              <div className="space-y-1 max-h-48 overflow-y-auto">
+                {refData.referrals.map(r => (
+                  <div key={r.id} className="flex items-center justify-between p-2 bg-zinc-900 rounded">
+                    <div className="flex items-center gap-2">
+                      <Avatar className="h-7 w-7"><AvatarFallback className="bg-purple-700 text-xs">{r.referredUserName?.[0]}</AvatarFallback></Avatar>
+                      <div>
+                        <p className="text-sm text-white">{r.referredUserName}</p>
+                        <p className="text-xs text-zinc-500">{fmtTime(r.createdAt)}</p>
+                      </div>
+                    </div>
+                    <Badge className="bg-green-700">+₹{r.bonus}</Badge>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
         </CardContent>
       </Card>
 
