@@ -17,8 +17,10 @@ import {
   Newspaper, Sparkles, TrendingUp, Eye, Share2, Bell, Search, LogIn, LogOut,
   UserPlus, LayoutDashboard, Shield, Flame, Clock, MapPin, Send, Loader2,
   CheckCircle2, XCircle, Trash2, Plus, Radio, Image as ImageIcon, Menu, X,
-  ArrowLeft, Wallet, FileText, Award, Bike, IdCard, Cloud
+  ArrowLeft, Wallet, FileText, Award, Bike, IdCard, Cloud, Download,
+  BarChart3, MessageCircle, Building2
 } from 'lucide-react'
+import { LineChart, Line, BarChart, Bar, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts'
 
 const API = '/api'
 
@@ -198,7 +200,7 @@ const SkeletonCard = () => (
 )
 
 // ============ HOME FEED ============
-const HomeFeed = ({ onArticle }) => {
+const HomeFeed = ({ onArticle, onState }) => {
   const [news, setNews] = useState([])
   const [page, setPage] = useState(1)
   const [hasMore, setHasMore] = useState(true)
@@ -267,6 +269,21 @@ const HomeFeed = ({ onArticle }) => {
         <span className="text-xs text-zinc-500">Live Feed • Auto-Updated</span>
       </div>
 
+      {/* State Quick Nav */}
+      <div className="mb-6 -mx-4 px-4 overflow-x-auto">
+        <div className="flex gap-2 pb-2 min-w-min">
+          {states.slice(0, 10).map(s => (
+            <button
+              key={s.name}
+              onClick={() => onState?.(s.name)}
+              className="flex-shrink-0 px-4 py-2 rounded-full bg-zinc-950 border border-zinc-800 hover:border-red-600 hover:bg-red-950/30 text-sm text-white transition-colors flex items-center gap-1.5"
+            >
+              <Building2 className="h-3 w-3 text-red-500" /> {s.name}
+            </button>
+          ))}
+        </div>
+      </div>
+
       {/* News Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
         {news.map((n, i) => <NewsCard key={n.id} news={n} onClick={onArticle} featured={i === 0 && page === 1} />)}
@@ -292,7 +309,7 @@ const HomeFeed = ({ onArticle }) => {
 }
 
 // ============ ARTICLE VIEW ============
-const ArticleView = ({ news, onBack }) => {
+const ArticleView = ({ news, onBack, onState }) => {
   useEffect(() => { fetch(`${API}/news/${news.id}`).catch(() => {}) }, [news.id])
   return (
     <div className="max-w-4xl mx-auto px-4 py-6">
@@ -329,7 +346,22 @@ const ArticleView = ({ news, onBack }) => {
             </div>
             <div className="flex items-center gap-4 text-sm text-zinc-400">
               <span className="flex items-center gap-1"><Eye className="h-4 w-4" /> {(news.views || 0).toLocaleString()}</span>
-              <Button size="sm" variant="ghost" className="text-zinc-400 hover:text-white"><Share2 className="h-4 w-4" /></Button>
+              <a href={`${API}/pdf/news/${news.id}`} target="_blank" rel="noopener noreferrer">
+                <Button size="sm" variant="ghost" className="text-zinc-400 hover:text-red-500 gap-1">
+                  <Download className="h-4 w-4" /> PDF
+                </Button>
+              </a>
+              <a
+                href={`https://wa.me/?text=${encodeURIComponent(news.headline + ' - ' + (typeof window !== 'undefined' ? window.location.href : ''))}`}
+                target="_blank" rel="noopener noreferrer"
+              >
+                <Button size="sm" variant="ghost" className="text-zinc-400 hover:text-green-500 gap-1">
+                  <MessageCircle className="h-4 w-4" /> WhatsApp
+                </Button>
+              </a>
+              <Button size="sm" variant="ghost" className="text-zinc-400 hover:text-white" onClick={() => { navigator.clipboard.writeText(window.location.href); toast.success('Link copied!') }}>
+                <Share2 className="h-4 w-4" />
+              </Button>
             </div>
           </div>
           {news.summary && (
@@ -549,12 +581,12 @@ const Dashboard = ({ user, token }) => {
   useEffect(() => { loadData() }, [])
 
   const downloads = [
-    { name: 'Press ID Card', icon: IdCard, color: 'from-red-600 to-red-800' },
-    { name: 'Joining Letter', icon: FileText, color: 'from-blue-600 to-blue-800' },
-    { name: 'Certificate', icon: Award, color: 'from-yellow-600 to-yellow-800' },
-    { name: 'Social Media DP', icon: ImageIcon, color: 'from-purple-600 to-purple-800' },
-    { name: 'Bike Sticker', icon: Bike, color: 'from-green-600 to-green-800' },
-    { name: 'Press Sticker', icon: Shield, color: 'from-pink-600 to-pink-800' }
+    { name: 'Press ID Card', icon: IdCard, color: 'from-red-600 to-red-800', url: `${API}/pdf/idcard/${user.id}` },
+    { name: 'Joining Letter', icon: FileText, color: 'from-blue-600 to-blue-800', url: `${API}/pdf/certificate/${user.id}` },
+    { name: 'Certificate', icon: Award, color: 'from-yellow-600 to-yellow-800', url: `${API}/pdf/certificate/${user.id}` },
+    { name: 'Social Media DP', icon: ImageIcon, color: 'from-purple-600 to-purple-800', url: user.photo },
+    { name: 'Bike Sticker', icon: Bike, color: 'from-green-600 to-green-800', url: `${API}/pdf/certificate/${user.id}` },
+    { name: 'Press Sticker', icon: Shield, color: 'from-pink-600 to-pink-800', url: `${API}/pdf/idcard/${user.id}` }
   ]
 
   return (
@@ -624,11 +656,11 @@ const Dashboard = ({ user, token }) => {
         </h3>
         <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
           {downloads.map(d => (
-            <button key={d.name} onClick={() => toast.info(`${d.name} download coming soon!`)} className={`bg-gradient-to-br ${d.color} rounded-xl p-4 text-left hover:scale-105 transition-transform shadow-lg`}>
+            <a key={d.name} href={d.url} target="_blank" rel="noopener noreferrer" className={`bg-gradient-to-br ${d.color} rounded-xl p-4 text-left hover:scale-105 transition-transform shadow-lg block`}>
               <d.icon className="h-6 w-6 text-white mb-2" />
               <p className="font-bold text-white text-sm">{d.name}</p>
-              <p className="text-xs text-white/70">Tap to download</p>
-            </button>
+              <p className="text-xs text-white/70 flex items-center gap-1"><Download className="h-3 w-3" /> Download PDF</p>
+            </a>
           ))}
         </div>
       </div>
@@ -716,6 +748,16 @@ const NewsEditor = ({ token, user, onClose }) => {
   const submit = async () => {
     if (!form.headline || !form.content || !form.state || !form.category) { toast.error('Fill all required fields'); return }
     setSubmitting(true)
+    // AI spam check first
+    try {
+      const spamCheck = await fetch(`${API}/ai/spam-check`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ headline: form.headline, content: form.content })
+      }).then(r => r.json())
+      if (spamCheck.isSpam && spamCheck.confidence > 70) {
+        toast.warning(`⚠️ AI Spam Warning (${spamCheck.confidence}%): ${spamCheck.reason}. Still submitting...`)
+      }
+    } catch {}
     const r = await fetch(`${API}/news`, {
       method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
       body: JSON.stringify(form)
@@ -900,6 +942,7 @@ const AdminPanel = ({ token, user }) => {
         <TabsList className="bg-zinc-950 border border-zinc-800">
           <TabsTrigger value="pending" className="data-[state=active]:bg-red-600">Pending News ({pending.length})</TabsTrigger>
           <TabsTrigger value="breaking" className="data-[state=active]:bg-red-600">Breaking News</TabsTrigger>
+          <TabsTrigger value="analytics" className="data-[state=active]:bg-red-600">Analytics</TabsTrigger>
         </TabsList>
 
         <TabsContent value="pending" className="space-y-3 mt-4">
@@ -938,7 +981,155 @@ const AdminPanel = ({ token, user }) => {
             </Card>
           ))}
         </TabsContent>
+
+        <TabsContent value="analytics" className="mt-4">
+          <AnalyticsPanel token={token} />
+        </TabsContent>
       </Tabs>
+    </div>
+  )
+}
+
+// ============ STATE PAGE ============
+const StatePage = ({ stateName, onBack, onArticle }) => {
+  const [data, setData] = useState(null)
+  useEffect(() => {
+    fetch(`${API}/state/${encodeURIComponent(stateName)}`).then(r => r.json()).then(setData)
+  }, [stateName])
+  if (!data) return (
+    <div className="max-w-7xl mx-auto px-4 py-6 space-y-4">
+      {Array.from({ length: 4 }).map((_, i) => <Skeleton key={i} className="h-32 w-full bg-zinc-900" />)}
+    </div>
+  )
+  return (
+    <div className="max-w-7xl mx-auto px-4 py-6">
+      <Button onClick={onBack} variant="ghost" className="mb-4 text-white hover:bg-red-950">
+        <ArrowLeft className="h-4 w-4 mr-2" /> Back
+      </Button>
+      <div className="bg-gradient-to-r from-red-700 to-red-900 rounded-2xl p-6 mb-6 shadow-2xl shadow-red-950/50">
+        <div className="flex items-center gap-3">
+          <Building2 className="h-10 w-10 text-white" />
+          <div>
+            <h1 className="text-3xl md:text-4xl font-black text-white">{stateName}</h1>
+            <p className="text-red-100">{data.total} News Articles • {data.reporters.length} Reporters • {data.districts.length} Districts</p>
+          </div>
+        </div>
+        <div className="flex flex-wrap gap-2 mt-4">
+          {data.districts.map(d => <Badge key={d} variant="outline" className="text-white border-white/40">{d}</Badge>)}
+        </div>
+      </div>
+
+      <h2 className="text-2xl font-black text-white mb-4">Team in {stateName}</h2>
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-8">
+        {data.reporters.length === 0 && (
+          <Card className="bg-zinc-950 border-zinc-800 col-span-full">
+            <CardContent className="p-6 text-center">
+              <UserPlus className="h-8 w-8 mx-auto text-red-500 mb-2" />
+              <p className="text-white font-bold">Vacancy Open!</p>
+              <p className="text-zinc-400 text-sm mb-3">Be the first reporter in {stateName}</p>
+              <Badge className="bg-red-600 animate-pulse">JOIN NOW</Badge>
+            </CardContent>
+          </Card>
+        )}
+        {data.reporters.map(r => (
+          <Card key={r.id} className="bg-zinc-950 border-zinc-800 hover:border-red-600 transition-colors">
+            <CardContent className="p-4 text-center">
+              <Avatar className="h-16 w-16 mx-auto border-2 border-red-600 mb-2">
+                <AvatarImage src={r.photo} />
+                <AvatarFallback className="bg-red-700">{r.name?.[0]}</AvatarFallback>
+              </Avatar>
+              <p className="font-bold text-white text-sm">{r.name}</p>
+              <p className="text-xs text-zinc-500">{r.designation}</p>
+              <p className="text-xs text-red-500 mt-1">{r.district}</p>
+            </CardContent>
+          </Card>
+        ))}
+      </div>
+
+      <h2 className="text-2xl font-black text-white mb-4">Latest News from {stateName}</h2>
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+        {data.news.map(n => <NewsCard key={n.id} news={n} onClick={onArticle} />)}
+      </div>
+    </div>
+  )
+}
+
+// ============ ANALYTICS PANEL ============
+const AnalyticsPanel = ({ token }) => {
+  const [data, setData] = useState(null)
+  useEffect(() => {
+    fetch(`${API}/analytics`, { headers: { Authorization: `Bearer ${token}` } }).then(r => r.json()).then(setData)
+  }, [])
+  if (!data) return <Skeleton className="h-96 w-full bg-zinc-900" />
+  const COLORS = ['#dc2626', '#f59e0b', '#10b981', '#3b82f6', '#a855f7', '#ec4899', '#06b6d4', '#f97316']
+  return (
+    <div className="space-y-5">
+      <Card className="bg-zinc-950 border-zinc-800">
+        <CardHeader><CardTitle className="text-white flex items-center gap-2"><BarChart3 className="h-5 w-5 text-red-500" /> News Timeline (Last 7 Days)</CardTitle></CardHeader>
+        <CardContent>
+          <ResponsiveContainer width="100%" height={250}>
+            <LineChart data={data.timeline}>
+              <CartesianGrid strokeDasharray="3 3" stroke="#27272a" />
+              <XAxis dataKey="date" stroke="#a1a1aa" />
+              <YAxis stroke="#a1a1aa" />
+              <Tooltip contentStyle={{ background: '#09090b', border: '1px solid #27272a' }} />
+              <Legend />
+              <Line type="monotone" dataKey="news" stroke="#dc2626" strokeWidth={3} />
+              <Line type="monotone" dataKey="views" stroke="#f59e0b" strokeWidth={2} />
+            </LineChart>
+          </ResponsiveContainer>
+        </CardContent>
+      </Card>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+        <Card className="bg-zinc-950 border-zinc-800">
+          <CardHeader><CardTitle className="text-white">News by Category</CardTitle></CardHeader>
+          <CardContent>
+            <ResponsiveContainer width="100%" height={250}>
+              <PieChart>
+                <Pie data={data.byCategory} dataKey="count" nameKey="category" outerRadius={80} label>
+                  {data.byCategory.map((_, i) => <Cell key={i} fill={COLORS[i % COLORS.length]} />)}
+                </Pie>
+                <Tooltip contentStyle={{ background: '#09090b', border: '1px solid #27272a' }} />
+              </PieChart>
+            </ResponsiveContainer>
+          </CardContent>
+        </Card>
+
+        <Card className="bg-zinc-950 border-zinc-800">
+          <CardHeader><CardTitle className="text-white">Top States by News</CardTitle></CardHeader>
+          <CardContent>
+            <ResponsiveContainer width="100%" height={250}>
+              <BarChart data={data.byState}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#27272a" />
+                <XAxis dataKey="state" stroke="#a1a1aa" angle={-20} height={60} textAnchor="end" />
+                <YAxis stroke="#a1a1aa" />
+                <Tooltip contentStyle={{ background: '#09090b', border: '1px solid #27272a' }} />
+                <Bar dataKey="count" fill="#dc2626" />
+              </BarChart>
+            </ResponsiveContainer>
+          </CardContent>
+        </Card>
+      </div>
+
+      <Card className="bg-zinc-950 border-zinc-800">
+        <CardHeader><CardTitle className="text-white flex items-center gap-2"><Award className="h-5 w-5 text-yellow-500" /> Top Reporters</CardTitle></CardHeader>
+        <CardContent>
+          {data.topReporters.map((r, i) => (
+            <div key={i} className="flex items-center justify-between py-2 border-b border-zinc-800 last:border-0">
+              <div className="flex items-center gap-3">
+                <span className="text-xl font-black text-zinc-500 w-8">#{i + 1}</span>
+                <Avatar className="h-8 w-8 border border-red-600"><AvatarFallback className="bg-red-700 text-xs">{r.name?.[0]}</AvatarFallback></Avatar>
+                <span className="font-semibold text-white">{r.name}</span>
+              </div>
+              <div className="text-right">
+                <p className="text-sm text-white font-bold">{r.news} news</p>
+                <p className="text-xs text-zinc-500">{r.views?.toLocaleString()} views</p>
+              </div>
+            </div>
+          ))}
+        </CardContent>
+      </Card>
     </div>
   )
 }
@@ -950,12 +1141,16 @@ const App = () => {
   const [token, setToken] = useState(null)
   const [article, setArticle] = useState(null)
   const [breaking, setBreaking] = useState([])
+  const [activeState, setActiveState] = useState(null)
 
   useEffect(() => {
     const t = localStorage.getItem('icn_token')
     const u = localStorage.getItem('icn_user')
     if (t && u) { setToken(t); setUser(JSON.parse(u)) }
-    fetch(`${API}/breaking`).then(r => r.json()).then(d => setBreaking(d.breaking || []))
+    const fetchBreaking = () => fetch(`${API}/breaking`).then(r => r.json()).then(d => setBreaking(d.breaking || []))
+    fetchBreaking()
+    const interval = setInterval(fetchBreaking, 15000) // Poll every 15s
+    return () => clearInterval(interval)
   }, [])
 
   const onLogin = (u) => {
@@ -970,14 +1165,16 @@ const App = () => {
     toast.info('Logged out')
   }
   const onArticle = (n) => { setArticle(n); setView('article') }
+  const onState = (s) => { setActiveState(s); setView('state') }
 
   return (
     <div className="min-h-screen bg-black">
       <Header user={user} onLogout={onLogout} onNav={setView} view={view} />
       <BreakingTicker items={breaking} />
 
-      {view === 'home' && <HomeFeed onArticle={onArticle} />}
-      {view === 'article' && article && <ArticleView news={article} onBack={() => setView('home')} />}
+      {view === 'home' && <HomeFeed onArticle={onArticle} onState={onState} />}
+      {view === 'article' && article && <ArticleView news={article} onBack={() => setView('home')} onState={onState} />}
+      {view === 'state' && activeState && <StatePage stateName={activeState} onBack={() => setView('home')} onArticle={onArticle} />}
       {view === 'login' && <LoginForm onLogin={onLogin} onNav={setView} />}
       {view === 'join' && <JoinForm onLogin={onLogin} onNav={setView} />}
       {view === 'dashboard' && user && <Dashboard user={user} token={token} />}

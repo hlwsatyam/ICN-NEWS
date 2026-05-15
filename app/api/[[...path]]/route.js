@@ -3,6 +3,7 @@ import { getDb } from '@/lib/db';
 import { signToken, hashPassword, comparePassword, getAuthUser } from '@/lib/auth';
 import { generateText } from '@/lib/llm';
 import { seedDatabase, INDIAN_STATES, CATEGORIES } from '@/lib/seed';
+import { generateNewsPDF, generateIDCardPDF, generateCertificatePDF } from '@/lib/pdf';
 import { v4 as uuid } from 'uuid';
 import Razorpay from 'razorpay';
 import crypto from 'crypto';
@@ -294,6 +295,123 @@ async function handler(request, { params }) {
     // ============ HEALTH ============
     if (path === '' || path === 'health') {
       return json({ status: 'ok', app: 'Indian Crime News API', timestamp: new Date() });
+    }
+
+    // ============ PDF DOWNLOADS ============
+    if (path.startsWith('pdf/news/') && method === 'GET') {
+      const id = path.split('/')[2];
+      const n = await db.collection('news').findOne({ id });
+      if (!n) return json({ error: 'Not found' }, 404);
+      const buf = await generateNewsPDF(n, process.env.NEXT_PUBLIC_BASE_URL || '');
+      return new Response(buf, {
+        headers: {
+          'Content-Type': 'application/pdf',
+          'Content-Disposition': `attachment; filename="news-${id}.pdf"`
+        }
+      });
+    }
+
+    if (path.startsWith('pdf/idcard/') && method === 'GET') {
+      const id = path.split('/')[2];
+      const u = await db.collection('users').findOne({ id });
+      if (!u) return json({ error: 'Not found' }, 404);
+      const buf = await generateIDCardPDF(u, process.env.NEXT_PUBLIC_BASE_URL || '');
+      return new Response(buf, {
+        headers: {
+          'Content-Type': 'application/pdf',
+          'Content-Disposition': `attachment; filename="press-id-${id}.pdf"`
+        }
+      });
+    }
+
+    if (path.startsWith('pdf/certificate/') && method === 'GET') {
+      const id = path.split('/')[2];
+      const u = await db.collection('users').findOne({ id });
+      if (!u) return json({ error: 'Not found' }, 404);
+      const buf = await generateCertificatePDF(u);
+      return new Response(buf, {
+        headers: {
+          'Content-Type': 'application/pdf',
+          'Content-Disposition': `attachment; filename="certificate-${id}.pdf"`
+        }
+      });
+    }
+
+    // ============ AI SPAM DETECTION ============
+    if (path === 'ai/spam-check' && method === 'POST') {
+      const { content, headline } = await request.json();
+      const sys = 'You are a content moderator. Output ONLY valid JSON.';
+      const prompt = `Analyze this news article. Return JSON: {"isSpam": bool, "confidence": 0-100, "reason": "...", "categoryHint": "..."}.\nHeadline: ${headline}\nContent: ${content?.slice(0, 1000)}`;
+      try {
+        const out = await generateText(prompt, sys);
+        const cleaned = out.replace(/```json|```/g, '').trim();
+        return json(JSON.parse(cleaned));
+      } catch {
+        return json({ isSpam: false, confidence: 0, reason: 'check failed' });
+      }
+    }
+
+    // ============ ANALYTICS ============
+    if (path === 'analytics' && method === 'GET') {
+      const auth = getAuthUser(request);
+      if (!auth) return json({ error: 'Unauthorized' }, 401);
+
+      // Last 7 days news count
+      const last7 = await db.collection('news').aggregate([
+        { $match: { createdAt: { $gte: new Date(Date.now() - 7 * 86400000) } } },
+        { $group: {
+          _id: { $dateToString: { format: '%Y-%m-%d', date: '$createdAt' } },
+          count: { $sum: 1 },
+          views: { $sum: '$views' }
+        }},
+        { $sort: { _id: 1 } }
+      ]).toArray();
+
+      // By category
+      const byCat = await db.collection('news').aggregate([
+        { $match: { status: 'approved' } },
+        { $group: { _id: '$category', count: { $sum: 1 }, views: { $sum: '$views' } } },
+        { $sort: { count: -1 } }
+      ]).toArray();
+
+      // By state
+      const byState = await db.collection('news').aggregate([
+        { $match: { status: 'approved' } },
+        { $group: { _id: '$state', count: { $sum: 1 } } },
+        { $sort: { count: -1 } },
+        { $limit: 10 }
+      ]).toArray();
+
+      // Top reporters
+      const topReporters = await db.collection('news').aggregate([
+        { $match: { status: 'approved' } },
+        { $group: { _id: '$reporterName', count: { $sum: 1 }, views: { $sum: '$views' } } },
+        { $sort: { views: -1 } },
+        { $limit: 5 }
+      ]).toArray();
+
+      return json({
+        timeline: last7.map(x => ({ date: x._id.slice(5), news: x.count, views: x.views })),
+        byCategory: byCat.map(x => ({ category: x._id, count: x.count, views: x.views })),
+        byState: byState.map(x => ({ state: x._id, count: x.count })),
+        topReporters: topReporters.map(x => ({ name: x._id, news: x.count, views: x.views }))
+      });
+    }
+
+    // ============ STATE PAGE DATA ============
+    if (path.startsWith('state/') && method === 'GET') {
+      const stateName = decodeURIComponent(path.split('/')[1]);
+      const news = await db.collection('news').find(
+        { state: stateName, status: 'approved' },
+        { projection: { _id: 0 } }
+      ).sort({ createdAt: -1 }).limit(20).toArray();
+      const reporters = await db.collection('users').find(
+        { state: stateName, role: 'reporter' },
+        { projection: { password: 0, _id: 0 } }
+      ).limit(10).toArray();
+      const total = await db.collection('news').countDocuments({ state: stateName });
+      const districts = (await db.collection('states').findOne({ name: stateName }))?.districts || [];
+      return json({ state: stateName, news, reporters, total, districts });
     }
 
     return json({ error: 'Not found', path }, 404);
