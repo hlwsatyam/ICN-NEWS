@@ -875,6 +875,192 @@ const JoinForm = ({ onLogin, onNav }) => {
   )
 }
 
+// ============ AD CREATION DIALOG (Reporter Paid Flow) ============
+const AdCreatorDialog = ({ token, user, onClose }) => {
+  const [step, setStep] = useState(1) // 1=type, 2=pay, 3=upload
+  const [type, setType] = useState('bottom')
+  const [form, setForm] = useState({ banner: '', link: '', ctaText: '', duration: 7 })
+  const [paymentId, setPaymentId] = useState(null)
+  const [submitting, setSubmitting] = useState(false)
+  const fileRef = useRef()
+
+  const sizes = type === 'bottom' ? '1200x200 desktop / 1080x250 mobile' : '900x300 desktop / 1080x400 mobile'
+
+  const pay = async () => {
+    const order = await fetch(`${API}/payment/create-order`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ amount: 299 })
+    }).then(r => r.json())
+    if (order.error) { toast.error('Razorpay not configured. Skipping for demo.'); setPaymentId('demo_' + Date.now()); setStep(3); return }
+    const script = document.createElement('script')
+    script.src = 'https://checkout.razorpay.com/v1/checkout.js'
+    script.onload = () => {
+      const rzp = new window.Razorpay({
+        key: order.keyId, amount: order.amount, currency: 'INR',
+        name: 'Indian Crime News', description: `${type === 'bottom' ? 'Bottom' : 'Middle'} Advertisement`,
+        order_id: order.orderId,
+        handler: async (resp) => {
+          await fetch(`${API}/payment/verify`, {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ ...resp, userId: user.id })
+          })
+          setPaymentId(resp.razorpay_payment_id)
+          toast.success('Payment successful! Upload your banner now.')
+          setStep(3)
+        },
+        theme: { color: '#dc2626' },
+        prefill: { name: user.name, email: user.email, contact: user.mobile }
+      })
+      rzp.open()
+    }
+    document.body.appendChild(script)
+  }
+
+  const handleUpload = async (e) => {
+    const f = e.target.files[0]
+    if (!f) return
+    const reader = new FileReader()
+    reader.onload = () => setForm(prev => ({ ...prev, banner: reader.result }))
+    reader.readAsDataURL(f)
+  }
+
+  const submit = async () => {
+    if (!form.banner) { toast.error('Upload a banner first'); return }
+    setSubmitting(true)
+    const r = await fetch(`${API}/ads`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ type, ...form, paymentId })
+    }).then(r => r.json())
+    setSubmitting(false)
+    if (r.ad) { toast.success('Advertisement submitted for admin approval!'); onClose(true) }
+    else toast.error(r.error || 'Failed')
+  }
+
+  return (
+    <Dialog open onOpenChange={() => onClose(false)}>
+      <DialogContent className="max-w-lg bg-zinc-950 border-zinc-800 text-white max-h-[90vh] overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2 text-xl"><Megaphone className="h-5 w-5 text-red-500" /> Create Advertisement</DialogTitle>
+        </DialogHeader>
+        <div className="space-y-4">
+          <div className="flex gap-1">
+            {[1, 2, 3].map(i => <div key={i} className={`h-1.5 flex-1 rounded-full ${step >= i ? 'bg-red-600' : 'bg-zinc-800'}`} />)}
+          </div>
+
+          {step === 1 && (
+            <>
+              <p className="text-sm text-zinc-400">Choose advertisement type:</p>
+              <button onClick={() => setType('bottom')} className={`w-full p-4 rounded-lg border-2 text-left ${type === 'bottom' ? 'border-red-600 bg-red-950/30' : 'border-zinc-800 bg-zinc-900'}`}>
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="font-bold text-white">📍 Bottom Advertisement</p>
+                    <p className="text-xs text-zinc-400 mt-1">Shows at bottom of news articles + footer sticky bar</p>
+                    <p className="text-xs text-yellow-500 mt-1">Recommended: 1200x200 / 1080x250</p>
+                  </div>
+                  <Badge className="bg-green-700">₹299</Badge>
+                </div>
+              </button>
+              <button onClick={() => setType('middle')} className={`w-full p-4 rounded-lg border-2 text-left ${type === 'middle' ? 'border-red-600 bg-red-950/30' : 'border-zinc-800 bg-zinc-900'}`}>
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="font-bold text-white">📰 Middle Advertisement</p>
+                    <p className="text-xs text-zinc-400 mt-1">Native ad inside news content (after 2nd-3rd paragraph)</p>
+                    <p className="text-xs text-yellow-500 mt-1">Recommended: 900x300 / 1080x400</p>
+                  </div>
+                  <Badge className="bg-green-700">₹299</Badge>
+                </div>
+              </button>
+              <Button onClick={() => setStep(2)} className="w-full bg-red-600 hover:bg-red-700">Continue → Pay ₹299</Button>
+            </>
+          )}
+
+          {step === 2 && (
+            <>
+              <div className="bg-zinc-900 rounded-lg p-4 space-y-2">
+                <div className="flex justify-between text-sm"><span className="text-zinc-400">Ad Type:</span><span className="text-white font-bold capitalize">{type}</span></div>
+                <div className="flex justify-between text-sm"><span className="text-zinc-400">Banner Size:</span><span className="text-white">{sizes}</span></div>
+                <div className="flex justify-between border-t border-zinc-800 pt-2 mt-2"><span className="text-zinc-400">Amount:</span><span className="text-2xl font-black text-green-400">₹299</span></div>
+              </div>
+              <Button onClick={pay} className="w-full bg-green-600 hover:bg-green-700"><Send className="h-4 w-4 mr-2" /> Pay with Razorpay</Button>
+              <Button onClick={() => setStep(1)} variant="outline" className="w-full border-zinc-800 bg-zinc-900 text-white">← Back</Button>
+            </>
+          )}
+
+          {step === 3 && (
+            <>
+              <Badge className="bg-green-700 gap-1"><CheckCircle2 className="h-3 w-3" /> Payment verified</Badge>
+              <div>
+                <p className="text-sm font-semibold mb-2">Upload Banner ({sizes})</p>
+                <input ref={fileRef} type="file" accept="image/*,image/gif" onChange={handleUpload} className="hidden" />
+                {form.banner ? (
+                  <div className="relative">
+                    <img src={form.banner} className="w-full rounded-lg border border-zinc-700" />
+                    <button onClick={() => { setForm({ ...form, banner: '' }); fileRef.current.value = '' }} className="absolute top-2 right-2 bg-red-600 rounded-full p-1.5"><X className="h-3 w-3" /></button>
+                  </div>
+                ) : (
+                  <button onClick={() => fileRef.current?.click()} className="w-full aspect-video border-2 border-dashed border-zinc-700 rounded-lg flex flex-col items-center justify-center text-zinc-500 hover:border-red-600 hover:text-red-500">
+                    <ImageIcon className="h-8 w-8 mb-2" />
+                    <p>Click to upload banner</p>
+                  </button>
+                )}
+              </div>
+              <Input placeholder="Redirect URL (optional, makes ad clickable)" value={form.link} onChange={e => setForm({ ...form, link: e.target.value })} className="bg-zinc-900 border-zinc-800 text-white" />
+              {form.link && <Input placeholder="CTA Button Text (e.g. Visit, Shop Now, Call)" value={form.ctaText} onChange={e => setForm({ ...form, ctaText: e.target.value })} className="bg-zinc-900 border-zinc-800 text-white" />}
+              <div>
+                <p className="text-xs text-zinc-500 mb-1">Duration (days)</p>
+                <Select value={String(form.duration)} onValueChange={v => setForm({ ...form, duration: parseInt(v) })}>
+                  <SelectTrigger className="bg-zinc-900 border-zinc-800"><SelectValue /></SelectTrigger>
+                  <SelectContent className="bg-zinc-950 border-zinc-800 text-white">
+                    <SelectItem value="7">7 days</SelectItem>
+                    <SelectItem value="15">15 days</SelectItem>
+                    <SelectItem value="30">30 days</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <Button onClick={submit} disabled={submitting} className="w-full bg-red-600 hover:bg-red-700">
+                {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <><Send className="h-4 w-4 mr-2" /> Submit for Approval</>}
+              </Button>
+            </>
+          )}
+        </div>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+// ============ SOCIAL POST DIALOG ============
+const SocialPostDialog = ({ token, onClose }) => {
+  const [url, setUrl] = useState('')
+  const [caption, setCaption] = useState('')
+  const [submitting, setSubmitting] = useState(false)
+  const submit = async () => {
+    if (!url) return toast.error('URL required')
+    setSubmitting(true)
+    const r = await fetch(`${API}/social`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ url, caption })
+    }).then(r => r.json())
+    setSubmitting(false)
+    if (r.post) { toast.success('Reel posted to social feed!'); onClose(true) }
+    else toast.error(r.error || 'Failed')
+  }
+  return (
+    <Dialog open onOpenChange={() => onClose(false)}>
+      <DialogContent className="max-w-md bg-zinc-950 border-zinc-800 text-white">
+        <DialogHeader><DialogTitle className="flex items-center gap-2"><Play className="h-5 w-5 text-red-500" /> Add Video / Reel</DialogTitle></DialogHeader>
+        <div className="space-y-3">
+          <Input placeholder="YouTube / Instagram / Facebook / Twitter URL" value={url} onChange={e => setUrl(e.target.value)} className="bg-zinc-900 border-zinc-800 text-white" />
+          <Textarea placeholder="Caption (optional)" value={caption} onChange={e => setCaption(e.target.value)} className="bg-zinc-900 border-zinc-800 text-white" rows={3} />
+          <p className="text-xs text-zinc-500">Platform auto-detected. YouTube videos will embed inline.</p>
+          <Button onClick={submit} disabled={submitting} className="w-full bg-red-600 hover:bg-red-700">
+            {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Post to Social Feed'}
+          </Button>
+        </div>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
 // ============ PAYOUT REQUEST DIALOG ============
 const PayoutDialog = ({ token, walletBalance, onClose }) => {
   const [form, setForm] = useState({ amount: '', method: 'upi', upiId: '', accountNumber: '', ifsc: '', accountHolder: '', notes: '' })
@@ -951,20 +1137,21 @@ const Dashboard = ({ user, token }) => {
   const [myNews, setMyNews] = useState([])
   const [creating, setCreating] = useState(false)
   const [showPayout, setShowPayout] = useState(false)
+  const [showAdCreator, setShowAdCreator] = useState(false)
+  const [showSocial, setShowSocial] = useState(false)
   const [payouts, setPayouts] = useState([])
+  const [myAds, setMyAds] = useState([])
   const [refData, setRefData] = useState({ referrals: [], totalEarned: 0, totalReferrals: 0, referralCode: user.referralCode, walletBalance: user.walletBalance || 0 })
 
   const loadData = async () => {
-    const [s, n, r, p] = await Promise.all([
+    const [s, n, r, p, a] = await Promise.all([
       fetch(`${API}/stats`, { headers: { Authorization: `Bearer ${token}` } }).then(r => r.json()),
       fetch(`${API}/news?status=all&reporterId=${user.id}`).then(r => r.json()),
       fetch(`${API}/referrals`, { headers: { Authorization: `Bearer ${token}` } }).then(r => r.json()),
-      fetch(`${API}/payouts`, { headers: { Authorization: `Bearer ${token}` } }).then(r => r.json())
+      fetch(`${API}/payouts`, { headers: { Authorization: `Bearer ${token}` } }).then(r => r.json()),
+      fetch(`${API}/ads/my`, { headers: { Authorization: `Bearer ${token}` } }).then(r => r.json())
     ])
-    setStats(s)
-    setMyNews(n.news || [])
-    setRefData(r)
-    setPayouts(p.payouts || [])
+    setStats(s); setMyNews(n.news || []); setRefData(r); setPayouts(p.payouts || []); setMyAds(a.ads || [])
   }
   useEffect(() => { loadData() }, [])
 
@@ -1168,6 +1355,8 @@ const Dashboard = ({ user, token }) => {
 
       {creating && <NewsEditor token={token} user={user} onClose={() => { setCreating(false); loadData() }} />}
       {showPayout && <PayoutDialog token={token} walletBalance={refData.walletBalance || 0} onClose={(refresh) => { setShowPayout(false); if (refresh) loadData() }} />}
+      {showAdCreator && <AdCreatorDialog token={token} user={user} onClose={(refresh) => { setShowAdCreator(false); if (refresh) loadData() }} />}
+      {showSocial && <SocialPostDialog token={token} onClose={(refresh) => { setShowSocial(false); if (refresh) loadData() }} />}
     </div>
   )
 }
@@ -1259,13 +1448,12 @@ const NewsEditor = ({ token, user, onClose }) => {
           <div>
             <label className="text-sm font-semibold mb-1 flex items-center justify-between">
               <span>News Content <span className="text-red-500">*</span></span>
-              <span className="text-xs text-zinc-500">Write your story first, then let AI write the headline</span>
+              <span className="text-xs text-zinc-500">Rich editor with embeds (YouTube/Image)</span>
             </label>
-            <Textarea
-              value={form.content}
-              onChange={e => setForm({ ...form, content: e.target.value })}
-              placeholder="Type or paste your full news content here (WhatsApp paste supported)..."
-              className="bg-zinc-900 border-zinc-800 text-white min-h-[180px]"
+            <RichEditor
+              value={form.contentHtml || form.content}
+              onChange={({ html, text }) => setForm({ ...form, contentHtml: html, content: text })}
+              placeholder="Type or paste your full news content here (WhatsApp paste supported). Use the toolbar for headings, lists, images, YouTube embeds..."
             />
           </div>
 
@@ -1358,21 +1546,43 @@ const AdminPanel = ({ token, user }) => {
   const [newBreak, setNewBreak] = useState('')
   const [payouts, setPayouts] = useState([])
   const [payoutSummary, setPayoutSummary] = useState({})
+  const [pendingAds, setPendingAds] = useState([])
+  const [allAds, setAllAds] = useState([])
 
   const load = async () => {
-    const [n, s, b, p] = await Promise.all([
+    const [n, s, b, p, ap, aa] = await Promise.all([
       fetch(`${API}/news?status=pending`).then(r => r.json()),
       fetch(`${API}/stats`, { headers: { Authorization: `Bearer ${token}` } }).then(r => r.json()),
       fetch(`${API}/breaking`).then(r => r.json()),
-      fetch(`${API}/payouts?all=true`, { headers: { Authorization: `Bearer ${token}` } }).then(r => r.json())
+      fetch(`${API}/payouts?all=true`, { headers: { Authorization: `Bearer ${token}` } }).then(r => r.json()),
+      fetch(`${API}/ads?status=pending`).then(r => r.json()),
+      fetch(`${API}/ads?status=approved`).then(r => r.json())
     ])
     setPending(n.news || [])
     setStats(s)
     setBreaking(b.breaking || [])
     setPayouts(p.payouts || [])
     setPayoutSummary(p.summary || {})
+    setPendingAds(ap.ads || [])
+    setAllAds(aa.ads || [])
   }
   useEffect(() => { load() }, [])
+
+  const moderateAd = async (id, status) => {
+    const note = status === 'rejected' ? prompt('Rejection reason:') : null
+    await fetch(`${API}/ads/${id}`, {
+      method: 'PATCH', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ status, adminNote: note })
+    })
+    toast.success(`Ad ${status}`)
+    load()
+  }
+
+  const deleteAd = async (id) => {
+    if (!confirm('Delete this ad permanently?')) return
+    await fetch(`${API}/ads/${id}`, { method: 'DELETE', headers: { Authorization: `Bearer ${token}` } })
+    load()
+  }
 
   const processPayout = async (id, status) => {
     let txn = null
@@ -1441,9 +1651,10 @@ const AdminPanel = ({ token, user }) => {
       </div>
 
       <Tabs defaultValue="pending" className="w-full">
-        <TabsList className="bg-zinc-950 border border-zinc-800">
-          <TabsTrigger value="pending" className="data-[state=active]:bg-red-600">Pending News ({pending.length})</TabsTrigger>
-          <TabsTrigger value="breaking" className="data-[state=active]:bg-red-600">Breaking News</TabsTrigger>
+        <TabsList className="bg-zinc-950 border border-zinc-800 flex-wrap h-auto">
+          <TabsTrigger value="pending" className="data-[state=active]:bg-red-600">News ({pending.length})</TabsTrigger>
+          <TabsTrigger value="ads" className="data-[state=active]:bg-red-600">Ads ({pendingAds.length})</TabsTrigger>
+          <TabsTrigger value="breaking" className="data-[state=active]:bg-red-600">Breaking</TabsTrigger>
           <TabsTrigger value="payouts" className="data-[state=active]:bg-red-600">Payouts ({payouts.filter(p => p.status === 'pending').length})</TabsTrigger>
           <TabsTrigger value="analytics" className="data-[state=active]:bg-red-600">Analytics</TabsTrigger>
         </TabsList>
@@ -1552,6 +1763,51 @@ const AdminPanel = ({ token, user }) => {
               </CardContent>
             </Card>
           ))}
+        </TabsContent>
+
+        <TabsContent value="ads" className="mt-4 space-y-3">
+          <h3 className="text-white font-bold flex items-center gap-2"><Megaphone className="h-4 w-4 text-yellow-500" /> Pending Advertisements</h3>
+          {pendingAds.length === 0 && <p className="text-zinc-500 text-center py-8">No pending ads.</p>}
+          {pendingAds.map(a => (
+            <Card key={a.id} className="bg-zinc-950 border-zinc-800">
+              <CardContent className="p-4 flex flex-col md:flex-row gap-4">
+                <img src={a.banner} className={`${a.type === 'bottom' ? 'h-24 w-48' : 'h-32 w-44'} object-cover rounded`} />
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 mb-1 flex-wrap">
+                    <Badge className="bg-yellow-700 capitalize">{a.type} ad</Badge>
+                    <Badge variant="outline" className="text-zinc-300 border-zinc-700">₹{a.amountPaid || 299} paid</Badge>
+                    <Badge variant="outline" className="text-zinc-300 border-zinc-700">{a.duration}d</Badge>
+                  </div>
+                  {a.link && <p className="text-xs text-zinc-400 mt-1">🔗 <a href={a.link} target="_blank" rel="noopener" className="text-blue-400">{a.link}</a></p>}
+                  {a.ctaText && <p className="text-xs text-zinc-400">CTA: <span className="text-white">{a.ctaText}</span></p>}
+                  <p className="text-xs text-zinc-500 mt-2">Reporter: {a.reporterId?.slice(0, 8)}... • {fmtTime(a.createdAt)}</p>
+                </div>
+                <div className="flex md:flex-col gap-2">
+                  <Button onClick={() => moderateAd(a.id, 'approved')} size="sm" className="bg-green-700 hover:bg-green-800"><CheckCircle2 className="h-4 w-4 mr-1" /> Approve</Button>
+                  <Button onClick={() => moderateAd(a.id, 'rejected')} size="sm" variant="destructive"><XCircle className="h-4 w-4 mr-1" /> Reject</Button>
+                </div>
+              </CardContent>
+            </Card>
+          ))}
+
+          {allAds.length > 0 && (
+            <div className="pt-4">
+              <h3 className="text-white font-bold mb-2">Active Ads ({allAds.length})</h3>
+              {allAds.map(a => (
+                <Card key={a.id} className="bg-zinc-950 border-zinc-800 mb-2">
+                  <CardContent className="p-3 flex items-center gap-3">
+                    <img src={a.banner} className="h-12 w-20 object-cover rounded" />
+                    <div className="flex-1 min-w-0">
+                      <p className="text-white text-sm capitalize font-bold">{a.type} Ad</p>
+                      <p className="text-xs text-zinc-500">{a.impressions || 0} views • {a.clicks || 0} clicks</p>
+                    </div>
+                    <Badge className="bg-green-700">Live</Badge>
+                    <Button onClick={() => deleteAd(a.id)} size="icon" variant="ghost" className="text-red-500"><Trash2 className="h-4 w-4" /></Button>
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
+          )}
         </TabsContent>
       </Tabs>
     </div>

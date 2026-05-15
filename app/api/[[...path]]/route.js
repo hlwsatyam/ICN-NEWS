@@ -600,7 +600,9 @@ async function handler(request, { params }) {
       const id = path.split('/')[2];
       const n = await db.collection('news').findOne({ id });
       if (!n) return json({ error: 'Not found' }, 404);
-      const buf = await generateNewsPDF(n, process.env.NEXT_PUBLIC_BASE_URL || '');
+      const ads = await db.collection('ads').find({ status: 'approved' }, { projection: { _id: 0 } }).toArray();
+      const reporter = await db.collection('users').findOne({ id: n.reporterId }, { projection: { password: 0, _id: 0 } });
+      const buf = await generateNewsPDF(n, process.env.NEXT_PUBLIC_BASE_URL || '', ads, reporter);
       return new Response(buf, {
         headers: {
           'Content-Type': 'application/pdf',
