@@ -145,9 +145,8 @@ code {
   0% { transform: translateX(0); }
   100% { transform: translateX(-50%); }
 }
-.animate-marquee {
-  animation: marquee 45s linear infinite;
-}
+.marquee.paused { animation-play-state: paused; }
+.animate-marquee { animation: marquee 45s linear infinite; }
 
 /* Smooth scrollbar */
 ::-webkit-scrollbar { width: 8px; height: 8px; }
@@ -155,7 +154,25 @@ code {
 ::-webkit-scrollbar-thumb { background: #dc2626; border-radius: 4px; }
 ::-webkit-scrollbar-thumb:hover { background: #b91c1c; }
 
-/* Line clamp utility */
-.line-clamp-1 { display: -webkit-box; -webkit-line-clamp: 1; -webkit-box-orient: vertical; overflow: hidden; }
-.line-clamp-2 { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
-.line-clamp-3 { display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+/* TipTap prose styling */
+.ProseMirror { outline: none; }
+.ProseMirror p.is-editor-empty:first-child::before {
+  content: attr(data-placeholder);
+  color: #52525b; pointer-events: none; height: 0; float: left;
+}
+.ProseMirror h1 { font-size: 1.75rem; font-weight: 800; color: white; margin: 0.5rem 0; }
+.ProseMirror h2 { font-size: 1.4rem; font-weight: 700; color: white; margin: 0.4rem 0; }
+.ProseMirror h3 { font-size: 1.15rem; font-weight: 600; color: white; margin: 0.3rem 0; }
+.ProseMirror p { color: #e4e4e7; margin: 0.4rem 0; line-height: 1.7; }
+.ProseMirror ul, .ProseMirror ol { padding-left: 1.5rem; color: #e4e4e7; }
+.ProseMirror blockquote { border-left: 3px solid #dc2626; padding-left: 1rem; font-style: italic; color: #a1a1aa; margin: 0.5rem 0; }
+.ProseMirror code { background: #18181b; color: #fbbf24; padding: 0.1rem 0.3rem; border-radius: 0.25rem; }
+.ProseMirror img { border-radius: 0.5rem; max-width: 100%; margin: 0.5rem 0; }
+.ProseMirror a { color: #ef4444; text-decoration: underline; }
+
+/* Hide scrollbar on horizontal pill nav */
+.no-scrollbar::-webkit-scrollbar { display: none; }
+.no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+
+/* Mobile safe area padding */
+.pb-safe { padding-bottom: env(safe-area-inset-bottom); }

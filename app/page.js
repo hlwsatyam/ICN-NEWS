@@ -1,6 +1,8 @@
 'use client'
 
 import { useEffect, useState, useRef } from 'react'
+import { motion, AnimatePresence } from 'framer-motion'
+import RichEditor from '@/components/RichEditor'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
@@ -18,7 +20,8 @@ import {
   UserPlus, LayoutDashboard, Shield, Flame, Clock, MapPin, Send, Loader2,
   CheckCircle2, XCircle, Trash2, Plus, Radio, Image as ImageIcon, Menu, X,
   ArrowLeft, Wallet, FileText, Award, Bike, IdCard, Cloud, Download,
-  BarChart3, MessageCircle, Building2
+  BarChart3, MessageCircle, Building2, Home, User, Heart, Play, AlertTriangle,
+  CheckCheck, Facebook, Twitter, Instagram, Youtube, Camera, Megaphone, EyeOff, Star
 } from 'lucide-react'
 import { LineChart, Line, BarChart, Bar, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts'
 
@@ -114,20 +117,20 @@ const Header = ({ user, onLogout, onNav, view }) => {
   )
 }
 
-// ============ BREAKING TICKER ============
+// ============ BREAKING TICKER (Sticky BOTTOM bar) ============
 const BreakingTicker = ({ items }) => {
   if (!items?.length) return null
   return (
-    <div className="bg-gradient-to-r from-red-700 via-red-600 to-red-700 border-y border-red-900 overflow-hidden">
-      <div className="max-w-7xl mx-auto flex items-center">
-        <div className="bg-black text-red-500 font-black px-4 py-2 text-sm flex items-center gap-2 flex-shrink-0">
-          <Flame className="h-4 w-4 animate-pulse" /> BREAKING
+    <div className="fixed bottom-14 md:bottom-0 left-0 right-0 z-40 bg-gradient-to-r from-red-700 via-red-600 to-red-700 border-y border-red-900 overflow-hidden shadow-2xl shadow-red-900/50 pb-safe">
+      <div className="max-w-7xl mx-auto flex items-center h-9 md:h-10">
+        <div className="bg-black text-red-500 font-black px-3 md:px-4 h-full text-xs md:text-sm flex items-center gap-1.5 flex-shrink-0 border-r-2 border-red-700">
+          <Flame className="h-3.5 w-3.5 animate-pulse" /> <span className="hidden sm:inline">BREAKING</span><span className="sm:hidden">LIVE</span>
         </div>
-        <div className="relative flex-1 overflow-hidden h-10">
-          <div className="absolute inset-0 flex items-center animate-marquee whitespace-nowrap">
+        <div className="relative flex-1 overflow-hidden h-full group" onMouseEnter={(e) => e.currentTarget.querySelector('.marquee')?.classList.add('paused')} onMouseLeave={(e) => e.currentTarget.querySelector('.marquee')?.classList.remove('paused')}>
+          <div className="marquee absolute inset-0 flex items-center animate-marquee whitespace-nowrap">
             {[...items, ...items].map((b, i) => (
-              <span key={i} className="text-white font-semibold text-sm mx-8 inline-flex items-center">
-                <span className="h-2 w-2 bg-yellow-300 rounded-full mr-3 animate-pulse" />
+              <span key={i} className="text-white font-semibold text-xs md:text-sm mx-6 inline-flex items-center">
+                <span className="h-1.5 w-1.5 bg-yellow-300 rounded-full mr-2 animate-pulse" />
                 {b.text}
               </span>
             ))}
@@ -135,6 +138,37 @@ const BreakingTicker = ({ items }) => {
         </div>
       </div>
     </div>
+  )
+}
+
+// ============ MOBILE BOTTOM NAV ============
+const MobileBottomNav = ({ view, onNav, user }) => {
+  const items = [
+    { key: 'home', icon: Home, label: 'Home' },
+    { key: 'social', icon: Play, label: 'Reels' },
+    { key: user ? 'publish' : 'join', icon: Plus, label: user ? 'Post' : 'Join', primary: true },
+    { key: 'dashboard', icon: user ? LayoutDashboard : LogIn, label: user ? 'Dashboard' : 'Login' },
+    { key: 'more', icon: User, label: 'Profile' }
+  ]
+  return (
+    <nav className="md:hidden fixed bottom-0 left-0 right-0 z-50 bg-black/90 backdrop-blur-xl border-t border-zinc-800 pb-safe">
+      <div className="flex items-center justify-around h-14">
+        {items.map(it => {
+          const active = view === it.key
+          if (it.primary) return (
+            <button key={it.key} onClick={() => onNav(it.key === 'publish' ? 'publish' : it.key)} className="-mt-6 h-14 w-14 rounded-full bg-gradient-to-br from-red-600 to-red-800 flex items-center justify-center shadow-xl shadow-red-900/60 ring-4 ring-black">
+              <it.icon className="h-6 w-6 text-white" />
+            </button>
+          )
+          return (
+            <button key={it.key} onClick={() => onNav(it.key === 'more' ? (user ? 'dashboard' : 'login') : it.key)} className={`flex flex-col items-center justify-center flex-1 h-full gap-0.5 ${active ? 'text-red-500' : 'text-zinc-500'}`}>
+              <it.icon className="h-5 w-5" />
+              <span className="text-[10px] font-medium">{it.label}</span>
+            </button>
+          )
+        })}
+      </div>
+    </nav>
   )
 }
 
@@ -198,6 +232,193 @@ const SkeletonCard = () => (
     </CardContent>
   </Card>
 )
+
+// ============ REPORTER INFO CARD (Article Bottom) ============
+const ReporterInfoCard = ({ reporter, onFollow }) => {
+  if (!reporter) return null
+  return (
+    <div className="mt-6 space-y-3">
+      <div className="bg-yellow-950/30 border border-yellow-700/50 rounded-xl p-3 flex items-start gap-2">
+        <AlertTriangle className="h-5 w-5 text-yellow-500 flex-shrink-0 mt-0.5" />
+        <p className="text-sm text-yellow-200 font-medium">
+          इस समाचार की सम्पूर्ण जिम्मेदारी संबंधित रिपोर्टर की होगी।
+        </p>
+      </div>
+      <div className="backdrop-blur-xl bg-gradient-to-br from-zinc-900/80 to-zinc-950/80 border border-red-900/40 rounded-2xl p-5 shadow-2xl shadow-red-950/30">
+        <div className="flex items-start gap-4">
+          <div className="relative">
+            <Avatar className="h-16 w-16 border-2 border-red-600 ring-2 ring-red-950">
+              <AvatarImage src={reporter.photo} />
+              <AvatarFallback className="bg-red-700 text-lg">{reporter.name?.[0]}</AvatarFallback>
+            </Avatar>
+            {reporter.verified && (
+              <div className="absolute -bottom-1 -right-1 bg-blue-500 rounded-full p-0.5 border-2 border-zinc-900">
+                <CheckCheck className="h-3 w-3 text-white" />
+              </div>
+            )}
+          </div>
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-2 flex-wrap">
+              <h4 className="font-black text-white text-lg">{reporter.name}</h4>
+              {reporter.verified && <Badge className="bg-blue-600 gap-1 text-xs"><CheckCheck className="h-3 w-3" /> Verified</Badge>}
+            </div>
+            <p className="text-sm text-zinc-400 mt-1">{reporter.designation || 'Reporter'} • {reporter.district}, {reporter.state}</p>
+            {reporter.bio && <p className="text-xs text-zinc-500 mt-2 italic">"{reporter.bio}"</p>}
+            <div className="flex flex-wrap gap-3 mt-3 text-xs text-zinc-400">
+              <span className="flex items-center gap-1"><MessageCircle className="h-3 w-3" /> {reporter.mobile || '—'}</span>
+              <span className="flex items-center gap-1">📧 {reporter.email || '—'}</span>
+              <span className="flex items-center gap-1"><Newspaper className="h-3 w-3" /> {reporter.newsCount || 0} reports</span>
+            </div>
+            <div className="flex items-center gap-2 mt-3 flex-wrap">
+              <Button onClick={onFollow} size="sm" className="bg-red-600 hover:bg-red-700"><Heart className="h-3 w-3 mr-1" /> Follow</Button>
+              {reporter.social?.facebook && <a href={reporter.social.facebook} target="_blank" rel="noopener"><Button size="icon" variant="ghost" className="h-7 w-7 text-zinc-300 hover:text-blue-500"><Facebook className="h-4 w-4" /></Button></a>}
+              {reporter.social?.twitter && <a href={reporter.social.twitter} target="_blank" rel="noopener"><Button size="icon" variant="ghost" className="h-7 w-7 text-zinc-300 hover:text-sky-400"><Twitter className="h-4 w-4" /></Button></a>}
+              {reporter.social?.instagram && <a href={reporter.social.instagram} target="_blank" rel="noopener"><Button size="icon" variant="ghost" className="h-7 w-7 text-zinc-300 hover:text-pink-500"><Instagram className="h-4 w-4" /></Button></a>}
+              {reporter.social?.youtube && <a href={reporter.social.youtube} target="_blank" rel="noopener"><Button size="icon" variant="ghost" className="h-7 w-7 text-zinc-300 hover:text-red-500"><Youtube className="h-4 w-4" /></Button></a>}
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ============ ADVERTISEMENT COMPONENTS ============
+const AdSlot = ({ type = 'bottom', reporter, ads }) => {
+  const ad = ads?.find(a => a.type === type)
+  const trackClick = () => { if (ad?.id) fetch(`${API}/ads/${ad.id}/click`, { method: 'POST' }) }
+  const sizes = type === 'bottom'
+    ? 'h-32 md:h-44 max-w-[1200px]'
+    : 'h-44 md:h-56 max-w-[900px]'
+
+  if (ad) {
+    const inner = (
+      <div className={`relative w-full ${sizes} mx-auto rounded-xl overflow-hidden border border-zinc-800 hover:border-red-600 transition-colors shadow-xl group cursor-pointer`}>
+        <img src={ad.banner} alt="Ad" className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-700" />
+        {ad.ctaText && (
+          <div className="absolute bottom-3 right-3 bg-red-600 text-white text-xs px-3 py-1.5 rounded-full font-bold">{ad.ctaText} →</div>
+        )}
+        <div className="absolute top-2 left-2 bg-black/60 backdrop-blur text-yellow-400 text-[10px] px-2 py-0.5 rounded">Ad</div>
+      </div>
+    )
+    return ad.link ? <a href={ad.link} target="_blank" rel="noopener noreferrer" onClick={trackClick}>{inner}</a> : inner
+  }
+
+  // Placeholder
+  return (
+    <div className={`relative w-full ${sizes} mx-auto rounded-xl border-2 border-dashed border-red-900/50 bg-gradient-to-br from-red-950/40 to-zinc-950 flex flex-col items-center justify-center text-center p-4 shadow-inner`}>
+      <Megaphone className="h-8 w-8 md:h-10 md:w-10 text-red-500/70 mb-2" />
+      <p className="text-white font-black text-base md:text-lg">विज्ञापन के लिए संपर्क करें</p>
+      <p className="text-zinc-400 text-xs md:text-sm mt-1">For advertisement, contact:</p>
+      <p className="text-red-400 font-semibold text-sm mt-1">{reporter?.name || 'Reporter'} {reporter?.mobile && `• ${reporter.mobile}`}</p>
+      {reporter?.mobile && (
+        <a href={`https://wa.me/91${reporter.mobile.replace(/\D/g, '').slice(-10)}?text=${encodeURIComponent('Hello, I want to place an advertisement on Indian Crime News.')}`} target="_blank" rel="noopener" className="mt-2">
+          <Button size="sm" className="bg-green-600 hover:bg-green-700 h-7 text-xs"><MessageCircle className="h-3 w-3 mr-1" /> WhatsApp</Button>
+        </a>
+      )}
+    </div>
+  )
+}
+
+// ============ CITY REPORTER CHECK (Used in JoinForm) ============
+const CityReporterCheck = ({ state, district }) => {
+  const [data, setData] = useState(null)
+  const [loading, setLoading] = useState(false)
+  useEffect(() => {
+    if (!state || !district) { setData(null); return }
+    setLoading(true)
+    const t = setTimeout(() => {
+      fetch(`${API}/reporters/by-city?state=${encodeURIComponent(state)}&district=${encodeURIComponent(district)}`)
+        .then(r => r.json()).then(d => { setData(d); setLoading(false) })
+    }, 400) // debounce
+    return () => clearTimeout(t)
+  }, [state, district])
+
+  if (!state || !district) return null
+  if (loading) return <div className="text-xs text-zinc-500 flex items-center gap-2"><Loader2 className="h-3 w-3 animate-spin" /> Checking reporters in {district}...</div>
+  if (!data) return null
+
+  if (data.canApply) {
+    return (
+      <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="bg-green-950/30 border border-green-700 rounded-xl p-3 flex items-center gap-3">
+        <div className="h-10 w-10 rounded-full bg-green-600/30 flex items-center justify-center flex-shrink-0">
+          <CheckCircle2 className="h-5 w-5 text-green-400" />
+        </div>
+        <div>
+          <p className="text-green-400 font-bold text-sm">✅ Position Available!</p>
+          <p className="text-xs text-zinc-400">No reporter in <span className="text-white">{district}</span> yet. You can apply!</p>
+        </div>
+      </motion.div>
+    )
+  }
+
+  return (
+    <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="space-y-2">
+      <div className="bg-yellow-950/30 border border-yellow-700 rounded-xl p-3 flex items-center gap-2">
+        <AlertTriangle className="h-4 w-4 text-yellow-500 flex-shrink-0" />
+        <p className="text-sm text-yellow-200">This city already has <strong>{data.totalInCity}</strong> active reporter{data.totalInCity > 1 ? 's' : ''}.</p>
+      </div>
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-48 overflow-y-auto">
+        {data.reporters.map((r, i) => (
+          <motion.div key={r.id} initial={{ opacity: 0, x: -10 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: i * 0.05 }}
+            className="bg-zinc-900 border border-zinc-800 rounded-lg p-2 flex items-center gap-2">
+            <Avatar className="h-9 w-9 border border-red-600">
+              <AvatarImage src={r.photo} />
+              <AvatarFallback className="bg-red-700 text-xs">{r.name?.[0]}</AvatarFallback>
+            </Avatar>
+            <div className="flex-1 min-w-0">
+              <p className="text-white text-xs font-bold flex items-center gap-1 truncate">
+                {r.name}
+                {r.verified && <CheckCheck className="h-3 w-3 text-blue-500" />}
+              </p>
+              <p className="text-[10px] text-zinc-500">{r.mobile || '—'} • {r.newsCount} news</p>
+            </div>
+          </motion.div>
+        ))}
+      </div>
+    </motion.div>
+  )
+}
+
+// ============ SOCIAL FEED ============
+const SocialFeed = () => {
+  const [posts, setPosts] = useState([])
+  const [loading, setLoading] = useState(true)
+  useEffect(() => { fetch(`${API}/social`).then(r => r.json()).then(d => { setPosts(d.posts || []); setLoading(false) }) }, [])
+  const like = (id) => { fetch(`${API}/social/${id}/like`, { method: 'POST' }); setPosts(p => p.map(x => x.id === id ? { ...x, likes: (x.likes || 0) + 1 } : x)) }
+  if (loading) return <div className="py-8 text-center text-zinc-500"><Loader2 className="h-6 w-6 animate-spin mx-auto" /></div>
+  if (!posts.length) return (
+    <div className="py-12 text-center text-zinc-500">
+      <Play className="h-12 w-12 mx-auto mb-2 opacity-30" />
+      <p>No social videos yet. Reporters can submit YouTube/Instagram reels from their dashboard.</p>
+    </div>
+  )
+  return (
+    <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
+      {posts.map(p => (
+        <motion.div key={p.id} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="bg-zinc-950 border border-zinc-800 rounded-xl overflow-hidden hover:border-red-600 transition-colors">
+          <div className="aspect-[9/16] bg-black relative">
+            {p.platform === 'youtube' && p.embedId ? (
+              <iframe src={`https://www.youtube.com/embed/${p.embedId}`} className="w-full h-full" allowFullScreen />
+            ) : (
+              <a href={p.url} target="_blank" rel="noopener" className="absolute inset-0 flex items-center justify-center bg-gradient-to-br from-red-950 to-black">
+                <Play className="h-12 w-12 text-red-500" />
+                <span className="absolute bottom-2 left-2 text-xs text-white bg-red-600/80 px-2 py-0.5 rounded capitalize">{p.platform}</span>
+              </a>
+            )}
+          </div>
+          <div className="p-2">
+            {p.caption && <p className="text-white text-xs line-clamp-2 mb-1">{p.caption}</p>}
+            <div className="flex items-center justify-between text-xs">
+              <span className="text-zinc-500 truncate">{p.reporterName}</span>
+              <button onClick={() => like(p.id)} className="text-red-500 flex items-center gap-1"><Heart className="h-3 w-3" /> {p.likes || 0}</button>
+            </div>
+          </div>
+        </motion.div>
+      ))}
+    </div>
+  )
+}
 
 // ============ HOME FEED ============
 const HomeFeed = ({ onArticle, onState }) => {
@@ -310,21 +531,31 @@ const HomeFeed = ({ onArticle, onState }) => {
 
 // ============ ARTICLE VIEW ============
 const ArticleView = ({ news, onBack, onState }) => {
-  useEffect(() => { fetch(`${API}/news/${news.id}`).catch(() => {}) }, [news.id])
+  const [ads, setAds] = useState([])
+  const [reporter, setReporter] = useState(null)
+  useEffect(() => {
+    fetch(`${API}/news/${news.id}`).catch(() => {})
+    fetch(`${API}/ads?status=approved`).then(r => r.json()).then(d => setAds(d.ads || []))
+    fetch(`${API}/reporter/${news.reporterId}`).then(r => r.json()).then(d => setReporter({ ...d.user, newsCount: d.newsCount }))
+  }, [news.id])
+
+  const paragraphs = (news.content || '').split(/\n+/).filter(Boolean)
+  const middleIdx = Math.min(2, Math.floor(paragraphs.length / 2))
+
   return (
-    <div className="max-w-4xl mx-auto px-4 py-6">
+    <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="max-w-4xl mx-auto px-4 py-6 pb-24 md:pb-16">
       <Button onClick={onBack} variant="ghost" className="mb-4 text-white hover:bg-red-950">
         <ArrowLeft className="h-4 w-4 mr-2" /> Back to Feed
       </Button>
       <article className="bg-zinc-950 border border-zinc-800 rounded-2xl overflow-hidden shadow-2xl">
-        {news.images?.[0] && (
+        {(news.thumbnail || news.images?.[0]) && (
           <div className="relative h-72 md:h-[28rem]">
-            <img src={news.images[0]} alt={news.headline} className="w-full h-full object-cover" />
+            <img src={news.thumbnail || news.images[0]} alt={news.headline} className="w-full h-full object-cover" />
             <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/30 to-transparent" />
             <div className="absolute bottom-0 p-6 md:p-8 space-y-3">
               <div className="flex flex-wrap gap-2">
                 <Badge className="bg-red-600 capitalize">{news.category}</Badge>
-                <Badge variant="outline" className="text-white border-white/30 backdrop-blur-sm">
+                <Badge variant="outline" className="text-white border-white/30 backdrop-blur-sm cursor-pointer hover:bg-red-700/40" onClick={(e) => { e.stopPropagation(); onState?.(news.state) }}>
                   <MapPin className="h-3 w-3 mr-1" /> {news.state} › {news.district}
                 </Badge>
               </div>
@@ -333,7 +564,7 @@ const ArticleView = ({ news, onBack, onState }) => {
           </div>
         )}
         <div className="p-6 md:p-8 space-y-6">
-          <div className="flex items-center justify-between border-b border-zinc-800 pb-4">
+          <div className="flex items-center justify-between border-b border-zinc-800 pb-4 flex-wrap gap-3">
             <div className="flex items-center gap-3">
               <Avatar className="h-12 w-12 border-2 border-red-600">
                 <AvatarImage src={news.reporterPhoto} />
@@ -344,37 +575,41 @@ const ArticleView = ({ news, onBack, onState }) => {
                 <p className="text-xs text-zinc-500">Reporter • {fmtTime(news.createdAt)}</p>
               </div>
             </div>
-            <div className="flex items-center gap-4 text-sm text-zinc-400">
+            <div className="flex items-center gap-2 text-sm text-zinc-400">
               <span className="flex items-center gap-1"><Eye className="h-4 w-4" /> {(news.views || 0).toLocaleString()}</span>
               <a href={`${API}/pdf/news/${news.id}`} target="_blank" rel="noopener noreferrer">
-                <Button size="sm" variant="ghost" className="text-zinc-400 hover:text-red-500 gap-1">
-                  <Download className="h-4 w-4" /> PDF
-                </Button>
+                <Button size="sm" variant="ghost" className="text-zinc-400 hover:text-red-500 gap-1"><Download className="h-4 w-4" /> PDF</Button>
               </a>
-              <a
-                href={`https://wa.me/?text=${encodeURIComponent(news.headline + ' - ' + (typeof window !== 'undefined' ? window.location.href : ''))}`}
-                target="_blank" rel="noopener noreferrer"
-              >
-                <Button size="sm" variant="ghost" className="text-zinc-400 hover:text-green-500 gap-1">
-                  <MessageCircle className="h-4 w-4" /> WhatsApp
-                </Button>
+              <a href={`https://wa.me/?text=${encodeURIComponent(news.headline + ' - ' + (typeof window !== 'undefined' ? window.location.href : ''))}`} target="_blank" rel="noopener noreferrer">
+                <Button size="sm" variant="ghost" className="text-zinc-400 hover:text-green-500 gap-1"><MessageCircle className="h-4 w-4" /></Button>
               </a>
               <Button size="sm" variant="ghost" className="text-zinc-400 hover:text-white" onClick={() => { navigator.clipboard.writeText(window.location.href); toast.success('Link copied!') }}>
                 <Share2 className="h-4 w-4" />
               </Button>
             </div>
           </div>
-          {news.summary && (
-            <p className="text-lg text-zinc-300 font-medium leading-relaxed border-l-4 border-red-600 pl-4 italic">
-              {news.summary}
-            </p>
+          {news.summary && <p className="text-lg text-zinc-300 font-medium leading-relaxed border-l-4 border-red-600 pl-4 italic">{news.summary}</p>}
+
+          {news.contentHtml && news.contentHtml !== news.content ? (
+            <div className="prose prose-invert max-w-none text-zinc-200 ProseMirror" dangerouslySetInnerHTML={{ __html: news.contentHtml }} />
+          ) : (
+            <div className="prose prose-invert max-w-none">
+              {paragraphs.map((p, i) => (
+                <div key={i}>
+                  <p className="whitespace-pre-wrap leading-relaxed text-base md:text-lg my-3 text-zinc-200">{p}</p>
+                  {i === middleIdx && (
+                    <div className="my-6"><AdSlot type="middle" reporter={reporter} ads={ads} /></div>
+                  )}
+                </div>
+              ))}
+            </div>
           )}
-          <div className="prose prose-invert max-w-none text-zinc-200 whitespace-pre-wrap leading-relaxed text-base md:text-lg">
-            {news.content}
-          </div>
+
+          <div className="pt-4"><AdSlot type="bottom" reporter={reporter} ads={ads} /></div>
+          <ReporterInfoCard reporter={reporter} onFollow={() => toast.success('You are now following ' + reporter?.name)} />
         </div>
       </article>
-    </div>
+    </motion.div>
   )
 }
 
@@ -431,14 +666,21 @@ const LoginForm = ({ onLogin, onNav }) => {
 
 // ============ JOIN FORM ============
 const JoinForm = ({ onLogin, onNav }) => {
-  const [form, setForm] = useState({ name: '', email: '', password: '', mobile: '', state: '', district: '', referralCode: '' })
+  const [form, setForm] = useState({
+    name: '', email: '', password: '', mobile: '', state: '', district: '', referralCode: '',
+    aadhaar: '', pan: '', address: '', bio: '', experience: '',
+    profilePhoto: '', coverBanner: '',
+    socialFacebook: '', socialTwitter: '', socialInstagram: '', socialYoutube: ''
+  })
+  const [step, setStep] = useState(1)
   const [states, setStates] = useState([])
   const [loading, setLoading] = useState(false)
   const [registered, setRegistered] = useState(null)
+  const profileRef = useRef()
+  const bannerRef = useRef()
 
   useEffect(() => {
     fetch(`${API}/states`).then(r => r.json()).then(d => setStates(d.states || []))
-    // Auto-fill referral from URL
     if (typeof window !== 'undefined') {
       const refFromUrl = new URLSearchParams(window.location.search).get('ref')
       if (refFromUrl) setForm(f => ({ ...f, referralCode: refFromUrl }))
@@ -446,8 +688,16 @@ const JoinForm = ({ onLogin, onNav }) => {
   }, [])
   const districts = states.find(s => s.name === form.state)?.districts || []
 
+  const handleImg = async (e, field) => {
+    const file = e.target.files[0]
+    if (!file) return
+    const reader = new FileReader()
+    reader.onload = () => setForm(f => ({ ...f, [field]: reader.result }))
+    reader.readAsDataURL(file)
+  }
+
   const submit = async () => {
-    if (!form.name || !form.email || !form.password) { toast.error('Please fill all fields'); return }
+    if (!form.name || !form.email || !form.password) { toast.error('Name, email, password required'); return }
     setLoading(true)
     const r = await fetch(`${API}/auth/register`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -458,10 +708,8 @@ const JoinForm = ({ onLogin, onNav }) => {
       localStorage.setItem('icn_token', r.token)
       localStorage.setItem('icn_user', JSON.stringify(r.user))
       setRegistered(r.user)
-      toast.success('Account created! Complete payment to activate.')
-    } else {
-      toast.error(r.error || 'Registration failed')
-    }
+      toast.success('Account created! ' + (r.referralApplied ? '₹100 sent to referrer.' : ''))
+    } else { toast.error(r.error || 'Registration failed') }
   }
 
   const payNow = async () => {
@@ -533,42 +781,92 @@ const JoinForm = ({ onLogin, onNav }) => {
   }
 
   return (
-    <div className="max-w-md mx-auto px-4 py-12">
+    <div className="max-w-2xl mx-auto px-4 py-8 pb-24 md:pb-8">
       <Card className="bg-zinc-950 border-zinc-800 shadow-2xl shadow-red-950/30">
         <CardHeader className="text-center">
           <div className="mx-auto"><Logo size="lg" /></div>
           <CardTitle className="text-white text-2xl mt-2">Become a Reporter</CardTitle>
-          <CardDescription className="text-zinc-400">Join India's biggest crime news network</CardDescription>
+          <CardDescription className="text-zinc-400">Step {step} of 3 — Join India's biggest crime news network</CardDescription>
+          <div className="flex gap-1 mt-3">
+            {[1, 2, 3].map(i => <div key={i} className={`h-1.5 flex-1 rounded-full ${step >= i ? 'bg-red-600' : 'bg-zinc-800'}`} />)}
+          </div>
         </CardHeader>
         <CardContent className="space-y-3">
-          <Input placeholder="Full Name" value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} className="bg-zinc-900 border-zinc-800 text-white" />
-          <Input type="email" placeholder="Email" value={form.email} onChange={e => setForm({ ...form, email: e.target.value })} className="bg-zinc-900 border-zinc-800 text-white" />
-          <Input type="password" placeholder="Password" value={form.password} onChange={e => setForm({ ...form, password: e.target.value })} className="bg-zinc-900 border-zinc-800 text-white" />
-          <Input placeholder="Mobile Number" value={form.mobile} onChange={e => setForm({ ...form, mobile: e.target.value })} className="bg-zinc-900 border-zinc-800 text-white" />
-          <Select value={form.state} onValueChange={(v) => setForm({ ...form, state: v, district: '' })}>
-            <SelectTrigger className="bg-zinc-900 border-zinc-800 text-white"><SelectValue placeholder="Select State" /></SelectTrigger>
-            <SelectContent className="bg-zinc-950 border-zinc-800 text-white">
-              {states.map(s => <SelectItem key={s.name} value={s.name}>{s.name}</SelectItem>)}
-            </SelectContent>
-          </Select>
-          {form.state && (
-            <Select value={form.district} onValueChange={(v) => setForm({ ...form, district: v })}>
-              <SelectTrigger className="bg-zinc-900 border-zinc-800 text-white"><SelectValue placeholder="Select District" /></SelectTrigger>
-              <SelectContent className="bg-zinc-950 border-zinc-800 text-white">
-                {districts.map(d => <SelectItem key={d} value={d}>{d}</SelectItem>)}
-              </SelectContent>
-            </Select>
+          {step === 1 && (
+            <>
+              <p className="text-xs text-zinc-500 mb-1">Basic Information</p>
+              <Input placeholder="Full Name *" value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} className="bg-zinc-900 border-zinc-800 text-white" />
+              <Input type="email" placeholder="Email *" value={form.email} onChange={e => setForm({ ...form, email: e.target.value })} className="bg-zinc-900 border-zinc-800 text-white" />
+              <Input type="password" placeholder="Password *" value={form.password} onChange={e => setForm({ ...form, password: e.target.value })} className="bg-zinc-900 border-zinc-800 text-white" />
+              <Input placeholder="Mobile Number *" value={form.mobile} onChange={e => setForm({ ...form, mobile: e.target.value })} className="bg-zinc-900 border-zinc-800 text-white" />
+              <div className="grid grid-cols-2 gap-2">
+                <Input placeholder="Aadhaar Number" value={form.aadhaar} onChange={e => setForm({ ...form, aadhaar: e.target.value })} className="bg-zinc-900 border-zinc-800 text-white" />
+                <Input placeholder="PAN" value={form.pan} onChange={e => setForm({ ...form, pan: e.target.value.toUpperCase() })} className="bg-zinc-900 border-zinc-800 text-white font-mono" />
+              </div>
+              <Button onClick={() => setStep(2)} className="w-full bg-red-600 hover:bg-red-700">Continue →</Button>
+            </>
           )}
-          <Input
-            placeholder="Referral Code (optional, earn referrer ₹100)"
-            value={form.referralCode}
-            onChange={e => setForm({ ...form, referralCode: e.target.value.toUpperCase() })}
-            className="bg-zinc-900 border-purple-900/50 text-white font-mono"
-          />
-          <Button onClick={submit} disabled={loading} className="w-full bg-red-600 hover:bg-red-700">
-            {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Register & Continue'}
-          </Button>
-          <Button onClick={() => onNav('login')} variant="ghost" className="w-full text-zinc-400">
+          {step === 2 && (
+            <>
+              <p className="text-xs text-zinc-500 mb-1">Location & Real-time Reporter Check</p>
+              <Select value={form.state} onValueChange={(v) => setForm({ ...form, state: v, district: '' })}>
+                <SelectTrigger className="bg-zinc-900 border-zinc-800 text-white"><SelectValue placeholder="Select State *" /></SelectTrigger>
+                <SelectContent className="bg-zinc-950 border-zinc-800 text-white">
+                  {states.map(s => <SelectItem key={s.name} value={s.name}>{s.name}</SelectItem>)}
+                </SelectContent>
+              </Select>
+              {form.state && (
+                <Select value={form.district} onValueChange={(v) => setForm({ ...form, district: v })}>
+                  <SelectTrigger className="bg-zinc-900 border-zinc-800 text-white"><SelectValue placeholder="Select District/City *" /></SelectTrigger>
+                  <SelectContent className="bg-zinc-950 border-zinc-800 text-white">
+                    {districts.map(d => <SelectItem key={d} value={d}>{d}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              )}
+              <CityReporterCheck state={form.state} district={form.district} />
+              <Textarea placeholder="Full Address" value={form.address} onChange={e => setForm({ ...form, address: e.target.value })} className="bg-zinc-900 border-zinc-800 text-white" rows={2} />
+              <Input placeholder="Referral Code (optional)" value={form.referralCode} onChange={e => setForm({ ...form, referralCode: e.target.value.toUpperCase() })} className="bg-zinc-900 border-purple-900/50 text-white font-mono" />
+              <div className="flex gap-2">
+                <Button onClick={() => setStep(1)} variant="outline" className="flex-1 border-zinc-800 bg-zinc-900 text-white">← Back</Button>
+                <Button onClick={() => setStep(3)} className="flex-1 bg-red-600 hover:bg-red-700">Continue →</Button>
+              </div>
+            </>
+          )}
+          {step === 3 && (
+            <>
+              <p className="text-xs text-zinc-500 mb-1">Profile & Social</p>
+              <div className="grid grid-cols-2 gap-2">
+                <div className="space-y-1">
+                  <p className="text-xs text-zinc-400">Profile Logo</p>
+                  <input ref={profileRef} type="file" accept="image/*" capture="environment" onChange={e => handleImg(e, 'profilePhoto')} className="hidden" />
+                  <button onClick={() => profileRef.current?.click()} className="w-full aspect-square bg-zinc-900 border-2 border-dashed border-zinc-700 hover:border-red-600 rounded-lg flex items-center justify-center overflow-hidden">
+                    {form.profilePhoto ? <img src={form.profilePhoto} className="w-full h-full object-cover" /> : <Camera className="h-6 w-6 text-zinc-500" />}
+                  </button>
+                </div>
+                <div className="space-y-1">
+                  <p className="text-xs text-zinc-400">Cover Banner</p>
+                  <input ref={bannerRef} type="file" accept="image/*" onChange={e => handleImg(e, 'coverBanner')} className="hidden" />
+                  <button onClick={() => bannerRef.current?.click()} className="w-full aspect-square bg-zinc-900 border-2 border-dashed border-zinc-700 hover:border-red-600 rounded-lg flex items-center justify-center overflow-hidden">
+                    {form.coverBanner ? <img src={form.coverBanner} className="w-full h-full object-cover" /> : <ImageIcon className="h-6 w-6 text-zinc-500" />}
+                  </button>
+                </div>
+              </div>
+              <Textarea placeholder="Short Bio (e.g. Senior crime reporter with 5+ years)" value={form.bio} onChange={e => setForm({ ...form, bio: e.target.value })} className="bg-zinc-900 border-zinc-800 text-white" rows={2} />
+              <Input placeholder="Experience (e.g. 3 years)" value={form.experience} onChange={e => setForm({ ...form, experience: e.target.value })} className="bg-zinc-900 border-zinc-800 text-white" />
+              <p className="text-xs text-zinc-500 pt-2">Social Media Links (optional)</p>
+              <Input placeholder="Facebook URL" value={form.socialFacebook} onChange={e => setForm({ ...form, socialFacebook: e.target.value })} className="bg-zinc-900 border-zinc-800 text-white" />
+              <Input placeholder="Twitter / X URL" value={form.socialTwitter} onChange={e => setForm({ ...form, socialTwitter: e.target.value })} className="bg-zinc-900 border-zinc-800 text-white" />
+              <Input placeholder="Instagram URL" value={form.socialInstagram} onChange={e => setForm({ ...form, socialInstagram: e.target.value })} className="bg-zinc-900 border-zinc-800 text-white" />
+              <Input placeholder="YouTube URL" value={form.socialYoutube} onChange={e => setForm({ ...form, socialYoutube: e.target.value })} className="bg-zinc-900 border-zinc-800 text-white" />
+              <div className="flex gap-2">
+                <Button onClick={() => setStep(2)} variant="outline" className="flex-1 border-zinc-800 bg-zinc-900 text-white">← Back</Button>
+                <Button onClick={submit} disabled={loading} className="flex-1 bg-red-600 hover:bg-red-700">
+                  {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Register'}
+                </Button>
+              </div>
+            </>
+          )}
+          <Button onClick={() => onNav('login')} variant="ghost" className="w-full text-zinc-400 hover:text-white">
             Already have account? <span className="text-red-500 ml-1 font-semibold">Login</span>
           </Button>
         </CardContent>
@@ -877,8 +1175,8 @@ const Dashboard = ({ user, token }) => {
 // ============ NEWS EDITOR (with AI) ============
 const NewsEditor = ({ token, user, onClose }) => {
   const [form, setForm] = useState({
-    headline: '', summary: '', content: '', category: '', state: user.state || '', district: user.district || '',
-    images: [], metaTitle: '', metaDescription: ''
+    headline: '', summary: '', content: '', contentHtml: '', category: '', state: user.state || '', district: user.district || '',
+    images: [], thumbnail: '', metaTitle: '', metaDescription: ''
   })
   const [aiLoading, setAiLoading] = useState(false)
   const [seoLoading, setSeoLoading] = useState(false)
@@ -1016,13 +1314,15 @@ const NewsEditor = ({ token, user, onClose }) => {
             {form.images.length > 0 && (
               <div className="flex flex-wrap gap-2 mt-2">
                 {form.images.map((src, i) => (
-                  <div key={i} className="relative">
-                    <img src={src} className="h-16 w-24 object-cover rounded border border-zinc-700" />
-                    <button onClick={() => setForm({ ...form, images: form.images.filter((_, j) => j !== i) })} className="absolute -top-1 -right-1 bg-red-600 rounded-full p-0.5">
+                  <div key={i} className="relative group">
+                    <img src={src} className={`h-20 w-28 object-cover rounded border-2 ${form.thumbnail === src ? 'border-yellow-500' : 'border-zinc-700'} cursor-pointer`} onClick={() => setForm({ ...form, thumbnail: src })} />
+                    {form.thumbnail === src && <Badge className="absolute -top-2 left-1 bg-yellow-500 text-black text-[10px] gap-0.5"><Star className="h-2.5 w-2.5" /> Cover</Badge>}
+                    <button onClick={() => setForm({ ...form, images: form.images.filter((_, j) => j !== i), thumbnail: form.thumbnail === src ? '' : form.thumbnail })} className="absolute -top-1 -right-1 bg-red-600 rounded-full p-0.5">
                       <X className="h-3 w-3" />
                     </button>
                   </div>
                 ))}
+                <p className="text-[10px] text-zinc-500 w-full">Click an image to set as cover thumbnail ⭐</p>
               </div>
             )}
           </div>
@@ -1410,6 +1710,7 @@ const App = () => {
   const [article, setArticle] = useState(null)
   const [breaking, setBreaking] = useState([])
   const [activeState, setActiveState] = useState(null)
+  const [showPublish, setShowPublish] = useState(false)
 
   useEffect(() => {
     const t = localStorage.getItem('icn_token')
@@ -1417,7 +1718,7 @@ const App = () => {
     if (t && u) { setToken(t); setUser(JSON.parse(u)) }
     const fetchBreaking = () => fetch(`${API}/breaking`).then(r => r.json()).then(d => setBreaking(d.breaking || []))
     fetchBreaking()
-    const interval = setInterval(fetchBreaking, 15000) // Poll every 15s
+    const interval = setInterval(fetchBreaking, 15000)
     return () => clearInterval(interval)
   }, [])
 
@@ -1432,23 +1733,54 @@ const App = () => {
     setUser(null); setToken(null); setView('home')
     toast.info('Logged out')
   }
-  const onArticle = (n) => { setArticle(n); setView('article') }
-  const onState = (s) => { setActiveState(s); setView('state') }
+  const onArticle = (n) => { setArticle(n); setView('article'); window.scrollTo(0, 0) }
+  const onState = (s) => { setActiveState(s); setView('state'); window.scrollTo(0, 0) }
+
+  const handleNav = (v) => {
+    if (v === 'publish') {
+      if (!user) { setView('login'); toast.info('Please login first to publish'); return }
+      setShowPublish(true)
+    } else {
+      setView(v)
+      window.scrollTo(0, 0)
+    }
+  }
 
   return (
-    <div className="min-h-screen bg-black">
-      <Header user={user} onLogout={onLogout} onNav={setView} view={view} />
+    <div className="min-h-screen bg-black pb-20 md:pb-12">
+      <Header user={user} onLogout={onLogout} onNav={handleNav} view={view} />
+
+      <AnimatePresence mode="wait">
+        <motion.div key={view} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} transition={{ duration: 0.2 }}>
+          {view === 'home' && <HomeFeed onArticle={onArticle} onState={onState} />}
+          {view === 'article' && article && <ArticleView news={article} onBack={() => setView('home')} onState={onState} />}
+          {view === 'state' && activeState && <StatePage stateName={activeState} onBack={() => setView('home')} onArticle={onArticle} />}
+          {view === 'social' && (
+            <div className="max-w-7xl mx-auto px-4 py-6">
+              <h2 className="text-2xl md:text-3xl font-black text-white mb-4 flex items-center gap-2"><Play className="h-6 w-6 text-red-500" /> Reels & Video Feed</h2>
+              <SocialFeed />
+            </div>
+          )}
+          {view === 'login' && <LoginForm onLogin={onLogin} onNav={setView} />}
+          {view === 'join' && <JoinForm onLogin={onLogin} onNav={setView} />}
+          {view === 'dashboard' && user && <Dashboard user={user} token={token} />}
+          {view === 'admin' && user?.role === 'admin' && <AdminPanel token={token} user={user} />}
+        </motion.div>
+      </AnimatePresence>
+
+      {/* Floating publish button (mobile-friendly extra) */}
+      {user && !showPublish && view !== 'dashboard' && (
+        <button onClick={() => setShowPublish(true)} className="hidden md:flex fixed bottom-16 right-6 z-30 h-14 w-14 rounded-full bg-gradient-to-br from-red-600 to-red-800 items-center justify-center shadow-2xl shadow-red-900/60 hover:scale-110 transition-transform">
+          <Plus className="h-7 w-7 text-white" />
+        </button>
+      )}
+
+      {showPublish && user && <NewsEditor token={token} user={user} onClose={() => setShowPublish(false)} />}
+
       <BreakingTicker items={breaking} />
+      <MobileBottomNav view={view} onNav={handleNav} user={user} />
 
-      {view === 'home' && <HomeFeed onArticle={onArticle} onState={onState} />}
-      {view === 'article' && article && <ArticleView news={article} onBack={() => setView('home')} onState={onState} />}
-      {view === 'state' && activeState && <StatePage stateName={activeState} onBack={() => setView('home')} onArticle={onArticle} />}
-      {view === 'login' && <LoginForm onLogin={onLogin} onNav={setView} />}
-      {view === 'join' && <JoinForm onLogin={onLogin} onNav={setView} />}
-      {view === 'dashboard' && user && <Dashboard user={user} token={token} />}
-      {view === 'admin' && user?.role === 'admin' && <AdminPanel token={token} user={user} />}
-
-      <footer className="mt-16 border-t border-zinc-900 bg-black py-8 px-4">
+      <footer className="hidden md:block mt-16 border-t border-zinc-900 bg-black py-8 px-4">
         <div className="max-w-7xl mx-auto text-center space-y-2">
           <Logo />
           <p className="text-zinc-500 text-sm mt-3">© 2025 Indian Crime News • सच्चाई की आवाज़</p>

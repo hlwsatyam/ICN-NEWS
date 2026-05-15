@@ -27,12 +27,16 @@ async function handler(request, { params }) {
     // ============ AUTH ============
     if (path === 'auth/register' && method === 'POST') {
       const body = await request.json();
-      const { email, password, name, mobile, state, district, role = 'reporter', referralCode: referredByCode } = body;
+      const {
+        email, password, name, mobile, state, district, role = 'reporter',
+        referralCode: referredByCode,
+        aadhaar, pan, address, bio, experience, profilePhoto, coverBanner,
+        socialFacebook, socialTwitter, socialInstagram, socialYoutube
+      } = body;
       if (!email || !password || !name) return json({ error: 'Missing fields' }, 400);
       const exists = await db.collection('users').findOne({ email });
       if (exists) return json({ error: 'Email already registered' }, 400);
 
-      // Lookup referrer
       let referredBy = null;
       if (referredByCode) {
         const referrer = await db.collection('users').findOne({ referralCode: referredByCode });
@@ -44,8 +48,22 @@ async function handler(request, { params }) {
         id, email, name, mobile, state, district, role,
         password: await hashPassword(password),
         designation: role === 'reporter' ? 'Reporter' : 'User',
-        photo: `https://api.dicebear.com/7.x/initials/svg?seed=${encodeURIComponent(name)}`,
+        photo: profilePhoto || `https://api.dicebear.com/7.x/initials/svg?seed=${encodeURIComponent(name)}`,
+        coverBanner: coverBanner || '',
+        aadhaar: aadhaar || '',
+        pan: pan || '',
+        address: address || '',
+        bio: bio || '',
+        experience: experience || '',
+        social: {
+          facebook: socialFacebook || '',
+          twitter: socialTwitter || '',
+          instagram: socialInstagram || '',
+          youtube: socialYoutube || ''
+        },
         walletBalance: 0,
+        verified: false,
+        followersCount: 0,
         referralCode: name.toUpperCase().replace(/\s/g, '').slice(0, 6) + Math.floor(Math.random() * 1000),
         referredBy,
         paymentStatus: 'pending',
@@ -53,7 +71,6 @@ async function handler(request, { params }) {
       };
       await db.collection('users').insertOne(user);
 
-      // Credit referrer
       if (referredBy) {
         const bonus = 100;
         await db.collection('users').updateOne({ id: referredBy }, { $inc: { walletBalance: bonus } });
@@ -130,28 +147,34 @@ async function handler(request, { params }) {
       const body = await request.json();
       const user = await db.collection('users').findOne({ id: auth.id });
       const id = uuid();
+      const slug = (body.headline || '').toLowerCase().replace(/[^a-z0-9\u0900-\u097F]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 80) + '-' + id.slice(0, 6);
       const news = {
-        id,
+        id, slug,
         headline: body.headline,
         summary: body.summary || '',
         content: body.content,
+        contentHtml: body.contentHtml || body.content,
         category: body.category,
         state: body.state,
         district: body.district,
-        city: body.city || '',
+        city: body.city || body.district,
         images: body.images || [],
         videoUrl: body.videoUrl || '',
+        media: body.media || [],
+        thumbnail: body.thumbnail || body.images?.[0] || '',
         metaTitle: body.metaTitle || body.headline,
         metaDescription: body.metaDescription || body.summary || '',
         reporterId: auth.id,
         reporterName: user?.name || 'Reporter',
         reporterPhoto: user?.photo || '',
-        status: auth.role === 'admin' ? 'approved' : 'pending',
+        status: 'approved',  // AUTO-PUBLISH
         views: 0,
         shares: 0,
         trending: false,
+        hidden: false,
+        featured: false,
         createdAt: new Date(),
-        publishedAt: auth.role === 'admin' ? new Date() : null
+        publishedAt: new Date()
       };
       await db.collection('news').insertOne(news);
       const { _id, ...safe } = news;
@@ -409,6 +432,161 @@ async function handler(request, { params }) {
         await db.collection('users').updateOne({ id: payout.userId }, { $inc: { walletBalance: -payout.amount } });
       }
       await db.collection('payouts').updateOne({ id }, { $set: update });
+      return json({ ok: true });
+    }
+
+    // ============ CITY REPORTERS (Real-time check) ============
+    if (path === 'reporters/by-city' && method === 'GET') {
+      const url = new URL(request.url);
+      const state = url.searchParams.get('state');
+      const district = url.searchParams.get('district');
+      if (!state || !district) return json({ reporters: [], canApply: true });
+      const reporters = await db.collection('users').find(
+        { state, district, role: 'reporter' },
+        { projection: { password: 0, _id: 0, aadhaar: 0, pan: 0, address: 0 } }
+      ).limit(10).toArray();
+      // attach news counts
+      const enriched = await Promise.all(reporters.map(async (r) => ({
+        ...r,
+        newsCount: await db.collection('news').countDocuments({ reporterId: r.id, status: 'approved' })
+      })));
+      return json({ reporters: enriched, canApply: enriched.length === 0, totalInCity: enriched.length });
+    }
+
+    // ============ REPORTER PROFILE ============
+    if (path.startsWith('reporter/') && method === 'GET') {
+      const idOrCode = path.split('/')[1];
+      const user = await db.collection('users').findOne(
+        { $or: [{ id: idOrCode }, { referralCode: idOrCode }] },
+        { projection: { password: 0, _id: 0, aadhaar: 0, pan: 0 } }
+      );
+      if (!user) return json({ error: 'Not found' }, 404);
+      const news = await db.collection('news').find(
+        { reporterId: user.id, status: 'approved' },
+        { projection: { _id: 0 } }
+      ).sort({ createdAt: -1 }).limit(20).toArray();
+      const newsCount = await db.collection('news').countDocuments({ reporterId: user.id, status: 'approved' });
+      return json({ user, news, newsCount });
+    }
+
+    // ============ ADVERTISEMENTS ============
+    if (path === 'ads' && method === 'GET') {
+      const url = new URL(request.url);
+      const newsId = url.searchParams.get('newsId');
+      const status = url.searchParams.get('status') || 'approved';
+      const type = url.searchParams.get('type'); // 'bottom' or 'middle'
+      const q = { status };
+      if (type) q.type = type;
+      if (newsId) q.newsId = newsId;
+      const ads = await db.collection('ads').find(q, { projection: { _id: 0 } }).sort({ createdAt: -1 }).limit(50).toArray();
+      return json({ ads });
+    }
+
+    if (path === 'ads' && method === 'POST') {
+      const auth = getAuthUser(request);
+      if (!auth) return json({ error: 'Unauthorized' }, 401);
+      const body = await request.json();
+      const { type, banner, link, ctaText, duration, paymentId, newsId } = body;
+      if (!['bottom', 'middle'].includes(type)) return json({ error: 'Invalid ad type' }, 400);
+      if (!banner) return json({ error: 'Banner required' }, 400);
+      const ad = {
+        id: uuid(), type, banner,
+        link: link || '',
+        ctaText: ctaText || (link ? 'Visit' : ''),
+        duration: parseInt(duration) || 7,
+        reporterId: auth.id,
+        newsId: newsId || null,
+        paymentId: paymentId || null,
+        status: 'pending',
+        impressions: 0,
+        clicks: 0,
+        amountPaid: 299,
+        createdAt: new Date(),
+        expiresAt: new Date(Date.now() + (parseInt(duration) || 7) * 86400000)
+      };
+      await db.collection('ads').insertOne(ad);
+      const { _id, ...safe } = ad;
+      return json({ ad: safe });
+    }
+
+    if (path.startsWith('ads/') && method === 'PATCH') {
+      const auth = getAuthUser(request);
+      if (!auth || auth.role !== 'admin') return json({ error: 'Forbidden' }, 403);
+      const id = path.split('/')[1];
+      const body = await request.json();
+      await db.collection('ads').updateOne({ id }, { $set: { status: body.status, adminNote: body.adminNote || null } });
+      return json({ ok: true });
+    }
+
+    if (path.startsWith('ads/') && method === 'DELETE') {
+      const auth = getAuthUser(request);
+      if (!auth || auth.role !== 'admin') return json({ error: 'Forbidden' }, 403);
+      const id = path.split('/')[1];
+      await db.collection('ads').deleteOne({ id });
+      return json({ ok: true });
+    }
+
+    if (path.startsWith('ads/') && path.endsWith('/click') && method === 'POST') {
+      const id = path.split('/')[1];
+      await db.collection('ads').updateOne({ id }, { $inc: { clicks: 1 } });
+      return json({ ok: true });
+    }
+
+    if (path === 'ads/my' && method === 'GET') {
+      const auth = getAuthUser(request);
+      if (!auth) return json({ error: 'Unauthorized' }, 401);
+      const ads = await db.collection('ads').find({ reporterId: auth.id }, { projection: { _id: 0 } }).sort({ createdAt: -1 }).toArray();
+      return json({ ads });
+    }
+
+    // ============ SOCIAL FEED (Reels / Videos) ============
+    if (path === 'social' && method === 'GET') {
+      const url = new URL(request.url);
+      const limit = parseInt(url.searchParams.get('limit') || '20');
+      const posts = await db.collection('social').find({}, { projection: { _id: 0 } }).sort({ createdAt: -1 }).limit(limit).toArray();
+      return json({ posts });
+    }
+
+    if (path === 'social' && method === 'POST') {
+      const auth = getAuthUser(request);
+      if (!auth) return json({ error: 'Unauthorized' }, 401);
+      const body = await request.json();
+      const { url: videoUrl, platform, caption } = body;
+      if (!videoUrl) return json({ error: 'URL required' }, 400);
+      const user = await db.collection('users').findOne({ id: auth.id });
+      // Detect platform
+      let detected = platform;
+      if (!detected) {
+        if (videoUrl.includes('youtube.com') || videoUrl.includes('youtu.be')) detected = 'youtube';
+        else if (videoUrl.includes('instagram.com')) detected = 'instagram';
+        else if (videoUrl.includes('facebook.com') || videoUrl.includes('fb.watch')) detected = 'facebook';
+        else if (videoUrl.includes('twitter.com') || videoUrl.includes('x.com')) detected = 'twitter';
+        else detected = 'other';
+      }
+      // Extract YouTube ID for embed
+      let embedId = null;
+      if (detected === 'youtube') {
+        const m = videoUrl.match(/(?:v=|youtu\.be\/|shorts\/)([a-zA-Z0-9_-]{11})/);
+        embedId = m ? m[1] : null;
+      }
+      const post = {
+        id: uuid(),
+        url: videoUrl, platform: detected, embedId,
+        caption: caption || '',
+        reporterId: auth.id,
+        reporterName: user?.name || 'Reporter',
+        reporterPhoto: user?.photo || '',
+        views: 0, likes: 0, shares: 0,
+        createdAt: new Date()
+      };
+      await db.collection('social').insertOne(post);
+      const { _id, ...safe } = post;
+      return json({ post: safe });
+    }
+
+    if (path.startsWith('social/') && path.endsWith('/like') && method === 'POST') {
+      const id = path.split('/')[1];
+      await db.collection('social').updateOne({ id }, { $inc: { likes: 1 } });
       return json({ ok: true });
     }
 
