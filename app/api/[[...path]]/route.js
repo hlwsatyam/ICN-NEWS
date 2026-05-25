@@ -486,11 +486,15 @@ async function handler(request, { params }) {
       const auth = getAuthUser(request);
       if (!auth) return json({ error: 'Unauthorized' }, 401);
       const body = await request.json();
-      const { type, banner, link, ctaText, duration, paymentId, newsId } = body;
-      if (!['bottom', 'middle'].includes(type)) return json({ error: 'Invalid ad type' }, 400);
+      const { placement, banner, link, ctaText, title, duration, paymentId, newsId } = body;
+      if (!['middle', 'bottom', 'both'].includes(placement)) return json({ error: 'Invalid placement' }, 400);
       if (!banner) return json({ error: 'Banner required' }, 400);
       const ad = {
-        id: uuid(), type, banner,
+        id: uuid(),
+        placement,
+        type: placement, // legacy compat
+        title: title || '',
+        banner,
         link: link || '',
         ctaText: ctaText || (link ? 'Visit' : ''),
         duration: parseInt(duration) || 7,

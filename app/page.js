@@ -287,27 +287,27 @@ const ReporterInfoCard = ({ reporter, onFollow }) => {
 }
 
 // ============ ADVERTISEMENT COMPONENTS ============
-const AdSlot = ({ type = 'bottom', reporter, ads }) => {
-  const ad = ads?.find(a => a.type === type)
+const AdSlot = ({ slot = 'bottom', reporter, ads }) => {
+  // Find an ad matching this slot OR placement === 'both'
+  const ad = ads?.find(a => a.placement === slot || a.placement === 'both' || a.type === slot)
   const trackClick = () => { if (ad?.id) fetch(`${API}/ads/${ad.id}/click`, { method: 'POST' }) }
-  const sizes = type === 'bottom'
+  const sizes = slot === 'bottom'
     ? 'h-32 md:h-44 max-w-[1200px]'
     : 'h-44 md:h-56 max-w-[900px]'
 
   if (ad) {
     const inner = (
       <div className={`relative w-full ${sizes} mx-auto rounded-xl overflow-hidden border border-zinc-800 hover:border-red-600 transition-colors shadow-xl group cursor-pointer`}>
-        <img src={ad.banner} alt="Ad" className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-700" />
+        <img src={ad.banner} alt={ad.title || 'Ad'} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-700" />
         {ad.ctaText && (
           <div className="absolute bottom-3 right-3 bg-red-600 text-white text-xs px-3 py-1.5 rounded-full font-bold">{ad.ctaText} →</div>
         )}
-        <div className="absolute top-2 left-2 bg-black/60 backdrop-blur text-yellow-400 text-[10px] px-2 py-0.5 rounded">Ad</div>
+        <div className="absolute top-2 left-2 bg-black/60 backdrop-blur text-yellow-400 text-[10px] px-2 py-0.5 rounded">Ad{ad.title ? ` • ${ad.title}` : ''}</div>
       </div>
     )
     return ad.link ? <a href={ad.link} target="_blank" rel="noopener noreferrer" onClick={trackClick}>{inner}</a> : inner
   }
 
-  // Placeholder
   return (
     <div className={`relative w-full ${sizes} mx-auto rounded-xl border-2 border-dashed border-red-900/50 bg-gradient-to-br from-red-950/40 to-zinc-950 flex flex-col items-center justify-center text-center p-4 shadow-inner`}>
       <Megaphone className="h-8 w-8 md:h-10 md:w-10 text-red-500/70 mb-2" />
@@ -536,24 +536,58 @@ const HomeFeed = ({ onArticle, onState }) => {
 const ArticleView = ({ news, onBack, onState }) => {
   const [ads, setAds] = useState([])
   const [reporter, setReporter] = useState(null)
+  const [generating, setGenerating] = useState(false)
+  const articleRef = useRef()
+
   useEffect(() => {
     fetch(`${API}/news/${news.id}`).catch(() => {})
     fetch(`${API}/ads?status=approved`).then(r => r.json()).then(d => setAds(d.ads || []))
     fetch(`${API}/reporter/${news.reporterId}`).then(r => r.json()).then(d => setReporter({ ...d.user, newsCount: d.newsCount }))
   }, [news.id])
 
+  const downloadAsPDF = async () => {
+    if (!articleRef.current) return
+    setGenerating(true)
+    try {
+      const html2pdf = (await import('html2pdf.js')).default
+      const opt = {
+        margin: 0,
+        filename: `news-${(news.slug || news.id).slice(0, 50)}.pdf`,
+        image: { type: 'jpeg', quality: 0.95 },
+        html2canvas: { scale: 2, useCORS: true, backgroundColor: '#0a0a0a', allowTaint: true },
+        jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' },
+        pagebreak: { mode: ['avoid-all', 'css', 'legacy'] }
+      }
+      await html2pdf().set(opt).from(articleRef.current).save()
+      toast.success('PDF downloaded!')
+    } catch (e) {
+      toast.error('PDF failed: ' + e.message)
+    }
+    setGenerating(false)
+  }
+
   const paragraphs = (news.content || '').split(/\n+/).filter(Boolean)
   const middleIdx = Math.min(2, Math.floor(paragraphs.length / 2))
 
   return (
     <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="max-w-4xl mx-auto px-4 py-6 pb-24 md:pb-16">
-      <Button onClick={onBack} variant="ghost" className="mb-4 text-white hover:bg-red-950">
-        <ArrowLeft className="h-4 w-4 mr-2" /> Back to Feed
-      </Button>
-      <article className="bg-zinc-950 border border-zinc-800 rounded-2xl overflow-hidden shadow-2xl">
+      <div className="flex items-center justify-between mb-4">
+        <Button onClick={onBack} variant="ghost" className="text-white hover:bg-red-950">
+          <ArrowLeft className="h-4 w-4 mr-2" /> Back to Feed
+        </Button>
+        <div className="flex items-center gap-1">
+          <Button onClick={downloadAsPDF} disabled={generating} size="sm" className="bg-red-600 hover:bg-red-700">
+            {generating ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <Download className="h-4 w-4 mr-1" />} PDF
+          </Button>
+          <a href={`https://wa.me/?text=${encodeURIComponent(news.headline + ' - ' + (typeof window !== 'undefined' ? window.location.href : ''))}`} target="_blank" rel="noopener noreferrer">
+            <Button size="sm" className="bg-green-600 hover:bg-green-700"><MessageCircle className="h-4 w-4 mr-1" /> Share</Button>
+          </a>
+        </div>
+      </div>
+      <article ref={articleRef} className="bg-zinc-950 border border-zinc-800 rounded-2xl overflow-hidden shadow-2xl">
         {(news.thumbnail || news.images?.[0]) && (
           <div className="relative h-72 md:h-[28rem]">
-            <img src={news.thumbnail || news.images[0]} alt={news.headline} className="w-full h-full object-cover" />
+            <img src={news.thumbnail || news.images[0]} alt={news.headline} className="w-full h-full object-cover" crossOrigin="anonymous" />
             <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/30 to-transparent" />
             <div className="absolute bottom-0 p-6 md:p-8 space-y-3">
               <div className="flex flex-wrap gap-2">
@@ -575,20 +609,11 @@ const ArticleView = ({ news, onBack, onState }) => {
               </Avatar>
               <div>
                 <p className="font-bold text-white">{news.reporterName}</p>
-                <p className="text-xs text-zinc-500">Reporter • {fmtTime(news.createdAt)}</p>
+                <p className="text-xs text-zinc-500">{reporter?.designation || 'Reporter'} • {fmtTime(news.createdAt)}</p>
               </div>
             </div>
-            <div className="flex items-center gap-2 text-sm text-zinc-400">
-              <span className="flex items-center gap-1"><Eye className="h-4 w-4" /> {(news.views || 0).toLocaleString()}</span>
-              <a href={`${API}/pdf/news/${news.id}`} target="_blank" rel="noopener noreferrer">
-                <Button size="sm" variant="ghost" className="text-zinc-400 hover:text-red-500 gap-1"><Download className="h-4 w-4" /> PDF</Button>
-              </a>
-              <a href={`https://wa.me/?text=${encodeURIComponent(news.headline + ' - ' + (typeof window !== 'undefined' ? window.location.href : ''))}`} target="_blank" rel="noopener noreferrer">
-                <Button size="sm" variant="ghost" className="text-zinc-400 hover:text-green-500 gap-1"><MessageCircle className="h-4 w-4" /></Button>
-              </a>
-              <Button size="sm" variant="ghost" className="text-zinc-400 hover:text-white" onClick={() => { navigator.clipboard.writeText(window.location.href); toast.success('Link copied!') }}>
-                <Share2 className="h-4 w-4" />
-              </Button>
+            <div className="text-sm text-zinc-400">
+              <span className="flex items-center gap-1"><Eye className="h-4 w-4" /> {(news.views || 0).toLocaleString()} views</span>
             </div>
           </div>
           {news.summary && <p className="text-lg text-zinc-300 font-medium leading-relaxed border-l-4 border-red-600 pl-4 italic">{news.summary}</p>}
@@ -601,20 +626,21 @@ const ArticleView = ({ news, onBack, onState }) => {
                 <div key={i}>
                   <p className="whitespace-pre-wrap leading-relaxed text-base md:text-lg my-3 text-zinc-200">{p}</p>
                   {i === middleIdx && (
-                    <div className="my-6"><AdSlot type="middle" reporter={reporter} ads={ads} /></div>
+                    <div className="my-6"><AdSlot slot="middle" reporter={reporter} ads={ads} /></div>
                   )}
                 </div>
               ))}
             </div>
           )}
 
-          <div className="pt-4"><AdSlot type="bottom" reporter={reporter} ads={ads} /></div>
+          <div className="pt-4"><AdSlot slot="bottom" reporter={reporter} ads={ads} /></div>
           <ReporterInfoCard reporter={reporter} onFollow={() => toast.success('You are now following ' + reporter?.name)} />
         </div>
       </article>
     </motion.div>
   )
 }
+
 
 // ============ LOGIN ============
 const LoginForm = ({ onLogin, onNav }) => {
@@ -987,14 +1013,12 @@ const JoinForm = ({ onLogin, onNav }) => {
 
 // ============ AD CREATION DIALOG (Reporter Paid Flow) ============
 const AdCreatorDialog = ({ token, user, onClose }) => {
-  const [step, setStep] = useState(1) // 1=type, 2=pay, 3=upload
-  const [type, setType] = useState('bottom')
-  const [form, setForm] = useState({ banner: '', link: '', ctaText: '', duration: 7 })
+  const [step, setStep] = useState(1) // 1=info, 2=pay, 3=upload
+  const [placement, setPlacement] = useState('both')
+  const [form, setForm] = useState({ banner: '', title: '', link: '', ctaText: '', duration: 7 })
   const [paymentId, setPaymentId] = useState(null)
   const [submitting, setSubmitting] = useState(false)
   const fileRef = useRef()
-
-  const sizes = type === 'bottom' ? '1200x200 desktop / 1080x250 mobile' : '900x300 desktop / 1080x400 mobile'
 
   const pay = async () => {
     const order = await fetch(`${API}/payment/create-order`, {
@@ -1007,7 +1031,7 @@ const AdCreatorDialog = ({ token, user, onClose }) => {
     script.onload = () => {
       const rzp = new window.Razorpay({
         key: order.keyId, amount: order.amount, currency: 'INR',
-        name: 'Indian Crime News', description: `${type === 'bottom' ? 'Bottom' : 'Middle'} Advertisement`,
+        name: 'Indian Crime News', description: `Advertisement (₹299, covers Middle + Bottom)`,
         order_id: order.orderId,
         handler: async (resp) => {
           await fetch(`${API}/payment/verify`, {
@@ -1026,7 +1050,7 @@ const AdCreatorDialog = ({ token, user, onClose }) => {
     document.body.appendChild(script)
   }
 
-  const handleUpload = async (e) => {
+  const handleUpload = (e) => {
     const f = e.target.files[0]
     if (!f) return
     const reader = new FileReader()
@@ -1039,7 +1063,7 @@ const AdCreatorDialog = ({ token, user, onClose }) => {
     setSubmitting(true)
     const r = await fetch(`${API}/ads`, {
       method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-      body: JSON.stringify({ type, ...form, paymentId })
+      body: JSON.stringify({ placement, ...form, paymentId })
     }).then(r => r.json())
     setSubmitting(false)
     if (r.ad) { toast.success('Advertisement submitted for admin approval!'); onClose(true) }
@@ -1051,6 +1075,7 @@ const AdCreatorDialog = ({ token, user, onClose }) => {
       <DialogContent className="max-w-lg bg-zinc-950 border-zinc-800 text-white max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2 text-xl"><Megaphone className="h-5 w-5 text-red-500" /> Create Advertisement</DialogTitle>
+          <CardDescription className="text-zinc-400">One payment of ₹299 covers your choice of placement.</CardDescription>
         </DialogHeader>
         <div className="space-y-4">
           <div className="flex gap-1">
@@ -1059,27 +1084,23 @@ const AdCreatorDialog = ({ token, user, onClose }) => {
 
           {step === 1 && (
             <>
-              <p className="text-sm text-zinc-400">Choose advertisement type:</p>
-              <button onClick={() => setType('bottom')} className={`w-full p-4 rounded-lg border-2 text-left ${type === 'bottom' ? 'border-red-600 bg-red-950/30' : 'border-zinc-800 bg-zinc-900'}`}>
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="font-bold text-white">📍 Bottom Advertisement</p>
-                    <p className="text-xs text-zinc-400 mt-1">Shows at bottom of news articles + footer sticky bar</p>
-                    <p className="text-xs text-yellow-500 mt-1">Recommended: 1200x200 / 1080x250</p>
-                  </div>
-                  <Badge className="bg-green-700">₹299</Badge>
-                </div>
-              </button>
-              <button onClick={() => setType('middle')} className={`w-full p-4 rounded-lg border-2 text-left ${type === 'middle' ? 'border-red-600 bg-red-950/30' : 'border-zinc-800 bg-zinc-900'}`}>
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="font-bold text-white">📰 Middle Advertisement</p>
-                    <p className="text-xs text-zinc-400 mt-1">Native ad inside news content (after 2nd-3rd paragraph)</p>
-                    <p className="text-xs text-yellow-500 mt-1">Recommended: 900x300 / 1080x400</p>
-                  </div>
-                  <Badge className="bg-green-700">₹299</Badge>
-                </div>
-              </button>
+              <p className="text-sm text-zinc-400">Choose placement:</p>
+              {[
+                { key: 'middle', label: '📰 Middle Banner Only', desc: 'Shows between news paragraphs', size: '900x300 / 1080x400' },
+                { key: 'bottom', label: '📍 Bottom Banner Only', desc: 'Shows at end of news article', size: '1200x200 / 1080x250' },
+                { key: 'both', label: '🌟 Both Middle + Bottom', desc: 'Same banner in BOTH positions (Best value)', size: 'Use 900x300 or 1200x300' }
+              ].map(opt => (
+                <button key={opt.key} onClick={() => setPlacement(opt.key)} className={`w-full p-3 rounded-xl border-2 text-left ${placement === opt.key ? 'border-red-600 bg-red-950/30' : 'border-zinc-800 bg-zinc-900'}`}>
+                  <p className="font-bold text-white">{opt.label}</p>
+                  <p className="text-xs text-zinc-400 mt-0.5">{opt.desc}</p>
+                  <p className="text-xs text-yellow-500 mt-0.5">Recommended: {opt.size}</p>
+                </button>
+              ))}
+              <div className="bg-green-950/30 border border-green-700 rounded-lg p-3 text-center">
+                <p className="text-zinc-400 text-xs">One-time payment</p>
+                <p className="text-2xl font-black text-green-400">₹299</p>
+                <p className="text-[10px] text-zinc-500">(Covers selected placements)</p>
+              </div>
               <Button onClick={() => setStep(2)} className="w-full bg-red-600 hover:bg-red-700">Continue → Pay ₹299</Button>
             </>
           )}
@@ -1087,9 +1108,8 @@ const AdCreatorDialog = ({ token, user, onClose }) => {
           {step === 2 && (
             <>
               <div className="bg-zinc-900 rounded-lg p-4 space-y-2">
-                <div className="flex justify-between text-sm"><span className="text-zinc-400">Ad Type:</span><span className="text-white font-bold capitalize">{type}</span></div>
-                <div className="flex justify-between text-sm"><span className="text-zinc-400">Banner Size:</span><span className="text-white">{sizes}</span></div>
-                <div className="flex justify-between border-t border-zinc-800 pt-2 mt-2"><span className="text-zinc-400">Amount:</span><span className="text-2xl font-black text-green-400">₹299</span></div>
+                <div className="flex justify-between text-sm"><span className="text-zinc-400">Placement:</span><span className="text-white font-bold capitalize">{placement}</span></div>
+                <div className="flex justify-between border-t border-zinc-800 pt-2"><span className="text-zinc-400">Amount:</span><span className="text-2xl font-black text-green-400">₹299</span></div>
               </div>
               <Button onClick={pay} className="w-full bg-green-600 hover:bg-green-700"><Send className="h-4 w-4 mr-2" /> Pay with Razorpay</Button>
               <Button onClick={() => setStep(1)} variant="outline" className="w-full border-zinc-800 bg-zinc-900 text-white">← Back</Button>
@@ -1099,13 +1119,14 @@ const AdCreatorDialog = ({ token, user, onClose }) => {
           {step === 3 && (
             <>
               <Badge className="bg-green-700 gap-1"><CheckCircle2 className="h-3 w-3" /> Payment verified</Badge>
+              <Input placeholder="Ad Title (optional)" value={form.title} onChange={e => setForm({ ...form, title: e.target.value })} className="bg-zinc-900 border-zinc-800 text-white" />
               <div>
-                <p className="text-sm font-semibold mb-2">Upload Banner ({sizes})</p>
+                <p className="text-sm font-semibold mb-2">Upload Banner</p>
                 <input ref={fileRef} type="file" accept="image/*,image/gif" onChange={handleUpload} className="hidden" />
                 {form.banner ? (
                   <div className="relative">
                     <img src={form.banner} className="w-full rounded-lg border border-zinc-700" />
-                    <button onClick={() => { setForm({ ...form, banner: '' }); fileRef.current.value = '' }} className="absolute top-2 right-2 bg-red-600 rounded-full p-1.5"><X className="h-3 w-3" /></button>
+                    <button onClick={() => { setForm({ ...form, banner: '' }); if (fileRef.current) fileRef.current.value = '' }} className="absolute top-2 right-2 bg-red-600 rounded-full p-1.5"><X className="h-3 w-3" /></button>
                   </div>
                 ) : (
                   <button onClick={() => fileRef.current?.click()} className="w-full aspect-video border-2 border-dashed border-zinc-700 rounded-lg flex flex-col items-center justify-center text-zinc-500 hover:border-red-600 hover:text-red-500">
@@ -1114,10 +1135,10 @@ const AdCreatorDialog = ({ token, user, onClose }) => {
                   </button>
                 )}
               </div>
-              <Input placeholder="Redirect URL (optional, makes ad clickable)" value={form.link} onChange={e => setForm({ ...form, link: e.target.value })} className="bg-zinc-900 border-zinc-800 text-white" />
-              {form.link && <Input placeholder="CTA Button Text (e.g. Visit, Shop Now, Call)" value={form.ctaText} onChange={e => setForm({ ...form, ctaText: e.target.value })} className="bg-zinc-900 border-zinc-800 text-white" />}
+              <Input placeholder="Optional Redirect URL (makes ad clickable)" value={form.link} onChange={e => setForm({ ...form, link: e.target.value })} className="bg-zinc-900 border-zinc-800 text-white" />
+              {form.link && <Input placeholder="CTA Button Text" value={form.ctaText} onChange={e => setForm({ ...form, ctaText: e.target.value })} className="bg-zinc-900 border-zinc-800 text-white" />}
               <div>
-                <p className="text-xs text-zinc-500 mb-1">Duration (days)</p>
+                <p className="text-xs text-zinc-500 mb-1">Duration</p>
                 <Select value={String(form.duration)} onValueChange={v => setForm({ ...form, duration: parseInt(v) })}>
                   <SelectTrigger className="bg-zinc-900 border-zinc-800"><SelectValue /></SelectTrigger>
                   <SelectContent className="bg-zinc-950 border-zinc-800 text-white">
@@ -1137,6 +1158,7 @@ const AdCreatorDialog = ({ token, user, onClose }) => {
     </Dialog>
   )
 }
+
 
 // ============ SOCIAL POST DIALOG ============
 const SocialPostDialog = ({ token, onClose }) => {
