@@ -668,14 +668,20 @@ const LoginForm = ({ onLogin, onNav }) => {
 }
 
 // ============ JOIN FORM ============
+// ============ JOIN FORM (Post-Driven Flow) ============
 const JoinForm = ({ onLogin, onNav }) => {
+  const [step, setStep] = useState(0) // 0=type, 1=location, 2=post-select, 3=profile, 4=pay
+  const [joinType, setJoinType] = useState('') // state|district|city
+  const [location, setLocation] = useState({ state: '', district: '', city: '' })
+  const [availablePosts, setAvailablePosts] = useState([])
+  const [selectedPost, setSelectedPost] = useState(null)
+  const [postDetail, setPostDetail] = useState(null)
   const [form, setForm] = useState({
-    name: '', email: '', password: '', mobile: '', state: '', district: '', referralCode: '',
+    name: '', email: '', password: '', mobile: '', referralCode: '',
     aadhaar: '', pan: '', address: '', bio: '', experience: '',
     profilePhoto: '', coverBanner: '',
     socialFacebook: '', socialTwitter: '', socialInstagram: '', socialYoutube: ''
   })
-  const [step, setStep] = useState(1)
   const [states, setStates] = useState([])
   const [loading, setLoading] = useState(false)
   const [registered, setRegistered] = useState(null)
@@ -689,7 +695,31 @@ const JoinForm = ({ onLogin, onNav }) => {
       if (refFromUrl) setForm(f => ({ ...f, referralCode: refFromUrl }))
     }
   }, [])
-  const districts = states.find(s => s.name === form.state)?.districts || []
+  const districts = states.find(s => s.name === location.state)?.districts || []
+
+  // Load available posts when location is complete
+  useEffect(() => {
+    if (!joinType) return
+    const ready = joinType === 'state' ? location.state
+      : joinType === 'district' ? (location.state && location.district)
+      : (location.state && location.district && location.city)
+    if (!ready) return
+    const params = new URLSearchParams()
+    if (location.state) params.set('state', location.state)
+    if (location.district && joinType !== 'state') params.set('district', location.district)
+    if (location.city && joinType === 'city') params.set('city', location.city)
+    fetch(`${API}/posts?${params}`)
+      .then(r => r.json())
+      .then(d => setAvailablePosts((d.posts || []).filter(p => p.levelType === joinType)))
+  }, [joinType, location])
+
+  // When post selected, fetch details (members + seats)
+  const selectPost = async (post) => {
+    setSelectedPost(post)
+    const r = await fetch(`${API}/posts/${post.id}`).then(r => r.json())
+    setPostDetail(r)
+    if (r.availableSeats > 0) setStep(3)
+  }
 
   const handleImg = async (e, field) => {
     const file = e.target.files[0]
@@ -702,173 +732,249 @@ const JoinForm = ({ onLogin, onNav }) => {
   const submit = async () => {
     if (!form.name || !form.email || !form.password) { toast.error('Name, email, password required'); return }
     setLoading(true)
+    const payload = {
+      ...form, role: 'reporter',
+      state: location.state, district: location.district || location.city, city: location.city,
+      appliedPostId: selectedPost?.id, appliedPostName: selectedPost?.name,
+      joiningType: joinType
+    }
     const r = await fetch(`${API}/auth/register`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ ...form, role: 'reporter' })
+      body: JSON.stringify(payload)
     }).then(r => r.json())
-    setLoading(false)
-    if (r.token) {
+    if (r.token && r.user) {
       localStorage.setItem('icn_token', r.token)
       localStorage.setItem('icn_user', JSON.stringify(r.user))
-      setRegistered(r.user)
-      toast.success('Account created! ' + (r.referralApplied ? '₹100 sent to referrer.' : ''))
-    } else { toast.error(r.error || 'Registration failed') }
-  }
-
-  const payNow = async () => {
-    const order = await fetch(`${API}/payment/create-order`, {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ amount: 500 })
-    }).then(r => r.json())
-
-    if (order.error) {
-      toast.error('Payment gateway not configured. Skipping payment for demo.')
-      onLogin(registered)
-      return
-    }
-
-    const script = document.createElement('script')
-    script.src = 'https://checkout.razorpay.com/v1/checkout.js'
-    script.onload = () => {
-      const rzp = new window.Razorpay({
-        key: order.keyId,
-        amount: order.amount,
-        currency: 'INR',
-        name: 'Indian Crime News',
-        description: 'Reporter Joining Fee',
-        order_id: order.orderId,
-        handler: async (resp) => {
-          await fetch(`${API}/payment/verify`, {
-            method: 'POST', headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ ...resp, userId: registered.id })
-          })
-          toast.success('Payment successful! Welcome aboard.')
-          onLogin(registered)
-        },
-        theme: { color: '#dc2626' },
-        prefill: { name: registered.name, email: registered.email, contact: registered.mobile }
+      // Auto-apply
+      await fetch(`${API}/posts/${selectedPost.id}/apply`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${r.token}` }
       })
-      rzp.open()
-    }
-    document.body.appendChild(script)
+      setRegistered(r.user)
+      setStep(4)
+      toast.success('Account created! Pay joining fee to complete application.')
+    } else { toast.error(r.error || 'Registration failed') }
+    setLoading(false)
   }
 
-  if (registered) {
-    return (
-      <div className="max-w-md mx-auto px-4 py-12">
-        <Card className="bg-zinc-950 border-zinc-800 shadow-2xl shadow-red-950/30">
-          <CardHeader className="text-center">
-            <CheckCircle2 className="h-16 w-16 text-green-500 mx-auto mb-2" />
-            <CardTitle className="text-white text-2xl">Almost There!</CardTitle>
-            <CardDescription className="text-zinc-400">
-              Complete payment of ₹500 to activate your reporter account
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="bg-zinc-900 rounded-lg p-4 space-y-2 text-sm">
-              <div className="flex justify-between"><span className="text-zinc-400">Name:</span><span className="text-white font-semibold">{registered.name}</span></div>
-              <div className="flex justify-between"><span className="text-zinc-400">Email:</span><span className="text-white">{registered.email}</span></div>
-              <div className="flex justify-between"><span className="text-zinc-400">Referral Code:</span><span className="text-red-500 font-mono">{registered.referralCode}</span></div>
-              <div className="flex justify-between border-t border-zinc-800 pt-2 mt-2"><span className="text-zinc-400">Joining Fee:</span><span className="text-white font-bold">₹500</span></div>
-            </div>
-            <Button onClick={payNow} className="w-full bg-red-600 hover:bg-red-700 shadow-lg shadow-red-900/50">
-              Pay ₹500 with Razorpay
-            </Button>
-            <Button onClick={() => onLogin(registered)} variant="ghost" className="w-full text-zinc-400">
-              Skip payment (demo) →
-            </Button>
-          </CardContent>
-        </Card>
-      </div>
-    )
+  const payJoiningFee = () => {
+    const amount = selectedPost?.joiningFee || 500
+    fetch(`${API}/payment/create-order`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ amount })
+    }).then(r => r.json()).then(order => {
+      if (order.error) { toast.error('Payment gateway not configured. Skipping for demo.'); onLogin(registered); return }
+      const script = document.createElement('script')
+      script.src = 'https://checkout.razorpay.com/v1/checkout.js'
+      script.onload = () => {
+        const rzp = new window.Razorpay({
+          key: order.keyId, amount: order.amount, currency: 'INR',
+          name: 'Indian Crime News', description: `${selectedPost.name} Joining Fee`,
+          order_id: order.orderId,
+          handler: async (resp) => {
+            await fetch(`${API}/payment/verify`, {
+              method: 'POST', headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ ...resp, userId: registered.id })
+            })
+            toast.success('Payment successful! Awaiting admin approval.')
+            onLogin(registered)
+          },
+          theme: { color: '#dc2626' },
+          prefill: { name: registered.name, email: registered.email, contact: registered.mobile }
+        })
+        rzp.open()
+      }
+      document.body.appendChild(script)
+    })
   }
 
+  // ===== Render =====
+  const totalSteps = 5
   return (
-    <div className="max-w-2xl mx-auto px-4 py-8 pb-24 md:pb-8">
+    <div className="max-w-2xl mx-auto px-4 py-6 pb-24 md:pb-8">
       <Card className="bg-zinc-950 border-zinc-800 shadow-2xl shadow-red-950/30">
         <CardHeader className="text-center">
           <div className="mx-auto"><Logo size="lg" /></div>
-          <CardTitle className="text-white text-2xl mt-2">Become a Reporter</CardTitle>
-          <CardDescription className="text-zinc-400">Step {step} of 3 — Join India's biggest crime news network</CardDescription>
+          <CardTitle className="text-white text-xl mt-2">Become a Reporter</CardTitle>
+          <CardDescription className="text-zinc-400">Step {step + 1} of {totalSteps}</CardDescription>
           <div className="flex gap-1 mt-3">
-            {[1, 2, 3].map(i => <div key={i} className={`h-1.5 flex-1 rounded-full ${step >= i ? 'bg-red-600' : 'bg-zinc-800'}`} />)}
+            {Array.from({ length: totalSteps }).map((_, i) => <div key={i} className={`h-1.5 flex-1 rounded-full ${step >= i ? 'bg-red-600' : 'bg-zinc-800'}`} />)}
           </div>
         </CardHeader>
         <CardContent className="space-y-3">
-          {step === 1 && (
+
+          {/* STEP 0: Joining Type */}
+          {step === 0 && (
             <>
-              <p className="text-xs text-zinc-500 mb-1">Basic Information</p>
-              <Input placeholder="Full Name *" value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} className="bg-zinc-900 border-zinc-800 text-white" />
-              <Input type="email" placeholder="Email *" value={form.email} onChange={e => setForm({ ...form, email: e.target.value })} className="bg-zinc-900 border-zinc-800 text-white" />
-              <Input type="password" placeholder="Password *" value={form.password} onChange={e => setForm({ ...form, password: e.target.value })} className="bg-zinc-900 border-zinc-800 text-white" />
-              <Input placeholder="Mobile Number *" value={form.mobile} onChange={e => setForm({ ...form, mobile: e.target.value })} className="bg-zinc-900 border-zinc-800 text-white" />
-              <div className="grid grid-cols-2 gap-2">
-                <Input placeholder="Aadhaar Number" value={form.aadhaar} onChange={e => setForm({ ...form, aadhaar: e.target.value })} className="bg-zinc-900 border-zinc-800 text-white" />
-                <Input placeholder="PAN" value={form.pan} onChange={e => setForm({ ...form, pan: e.target.value.toUpperCase() })} className="bg-zinc-900 border-zinc-800 text-white font-mono" />
-              </div>
-              <Button onClick={() => setStep(2)} className="w-full bg-red-600 hover:bg-red-700">Continue →</Button>
+              <p className="text-sm text-zinc-400 mb-2">Select your joining level:</p>
+              {[
+                { key: 'state', label: 'State Level', desc: 'Lead state-wide team', icon: '🏛️' },
+                { key: 'district', label: 'District Level', desc: 'Manage district reporting', icon: '🏙️' },
+                { key: 'city', label: 'City Level', desc: 'Report from your city', icon: '📍' }
+              ].map(opt => (
+                <button key={opt.key} onClick={() => { setJoinType(opt.key); setLocation({ state: '', district: '', city: '' }); setStep(1) }}
+                  className={`w-full p-4 rounded-xl border-2 text-left transition-all ${joinType === opt.key ? 'border-red-600 bg-red-950/30' : 'border-zinc-800 bg-zinc-900 hover:border-red-700'}`}>
+                  <div className="flex items-center gap-3">
+                    <div className="text-2xl">{opt.icon}</div>
+                    <div className="flex-1">
+                      <p className="font-bold text-white">{opt.label}</p>
+                      <p className="text-xs text-zinc-400">{opt.desc}</p>
+                    </div>
+                  </div>
+                </button>
+              ))}
             </>
           )}
-          {step === 2 && (
+
+          {/* STEP 1: Location */}
+          {step === 1 && (
             <>
-              <p className="text-xs text-zinc-500 mb-1">Location & Real-time Reporter Check</p>
-              <Select value={form.state} onValueChange={(v) => setForm({ ...form, state: v, district: '' })}>
+              <p className="text-sm text-zinc-400 mb-1">Select location for <span className="text-red-400 capitalize font-bold">{joinType} level</span> joining:</p>
+              <Select value={location.state} onValueChange={v => setLocation({ state: v, district: '', city: '' })}>
                 <SelectTrigger className="bg-zinc-900 border-zinc-800 text-white"><SelectValue placeholder="Select State *" /></SelectTrigger>
                 <SelectContent className="bg-zinc-950 border-zinc-800 text-white">
                   {states.map(s => <SelectItem key={s.name} value={s.name}>{s.name}</SelectItem>)}
                 </SelectContent>
               </Select>
-              {form.state && (
-                <Select value={form.district} onValueChange={(v) => setForm({ ...form, district: v })}>
-                  <SelectTrigger className="bg-zinc-900 border-zinc-800 text-white"><SelectValue placeholder="Select District/City *" /></SelectTrigger>
+              {(joinType === 'district' || joinType === 'city') && location.state && (
+                <Select value={location.district} onValueChange={v => setLocation({ ...location, district: v, city: '' })}>
+                  <SelectTrigger className="bg-zinc-900 border-zinc-800 text-white"><SelectValue placeholder="Select District *" /></SelectTrigger>
                   <SelectContent className="bg-zinc-950 border-zinc-800 text-white">
                     {districts.map(d => <SelectItem key={d} value={d}>{d}</SelectItem>)}
                   </SelectContent>
                 </Select>
               )}
-              <CityReporterCheck state={form.state} district={form.district} />
-              <Textarea placeholder="Full Address" value={form.address} onChange={e => setForm({ ...form, address: e.target.value })} className="bg-zinc-900 border-zinc-800 text-white" rows={2} />
-              <Input placeholder="Referral Code (optional)" value={form.referralCode} onChange={e => setForm({ ...form, referralCode: e.target.value.toUpperCase() })} className="bg-zinc-900 border-purple-900/50 text-white font-mono" />
+              {joinType === 'city' && location.district && (
+                <Input placeholder="City Name *" value={location.city} onChange={e => setLocation({ ...location, city: e.target.value })} className="bg-zinc-900 border-zinc-800 text-white" />
+              )}
               <div className="flex gap-2">
-                <Button onClick={() => setStep(1)} variant="outline" className="flex-1 border-zinc-800 bg-zinc-900 text-white">← Back</Button>
-                <Button onClick={() => setStep(3)} className="flex-1 bg-red-600 hover:bg-red-700">Continue →</Button>
+                <Button onClick={() => setStep(0)} variant="outline" className="flex-1 border-zinc-800 bg-zinc-900 text-white">← Back</Button>
+                <Button onClick={() => setStep(2)} disabled={!location.state || (joinType !== 'state' && !location.district) || (joinType === 'city' && !location.city)} className="flex-1 bg-red-600 hover:bg-red-700">View Available Posts →</Button>
               </div>
             </>
           )}
+
+          {/* STEP 2: Post Selection */}
+          {step === 2 && (
+            <>
+              <p className="text-sm text-zinc-400 mb-1">
+                Available <span className="text-red-400 capitalize font-bold">{joinType}</span> posts in{' '}
+                <span className="text-white">{[location.state, location.district, location.city].filter(Boolean).join(' › ')}</span>
+              </p>
+              {availablePosts.length === 0 ? (
+                <div className="text-center py-8">
+                  <AlertTriangle className="h-10 w-10 mx-auto text-yellow-500 mb-2" />
+                  <p className="text-white font-bold">No posts available here</p>
+                  <p className="text-xs text-zinc-500 mt-1">Admin has not created any {joinType}-level posts for this location yet.</p>
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  {availablePosts.map(p => {
+                    const filled = p.availableSeats <= 0
+                    return (
+                      <button key={p.id} onClick={() => filled ? selectPost(p) : selectPost(p)}
+                        className={`w-full p-3 rounded-xl border-2 text-left ${filled ? 'border-zinc-800 bg-zinc-900 opacity-70' : 'border-red-900/50 bg-red-950/20 hover:border-red-600'}`}>
+                        <div className="flex items-center justify-between flex-wrap gap-2">
+                          <p className="font-bold text-white">{p.name}</p>
+                          <Badge className="bg-yellow-600">₹{p.joiningFee}</Badge>
+                        </div>
+                        <p className="text-xs text-zinc-400 mt-1">{p.description?.slice(0, 80)}</p>
+                        <div className="flex items-center justify-between mt-2">
+                          <span className="text-xs">{p.filledSeats || 0}/{p.totalVacancy} filled</span>
+                          {filled ? <Badge className="bg-red-700">⛔ All Filled</Badge> : <Badge className="bg-green-700">✅ {p.availableSeats} seats open</Badge>}
+                        </div>
+                      </button>
+                    )
+                  })}
+                </div>
+              )}
+
+              {/* Show members if a filled post is selected */}
+              {selectedPost && postDetail && postDetail.availableSeats === 0 && (
+                <div className="mt-4 space-y-2">
+                  <div className="bg-yellow-950/30 border border-yellow-700 rounded-lg p-3">
+                    <p className="text-yellow-300 font-bold text-sm">⛔ All vacancies for {selectedPost.name} in {[location.state, location.district, location.city].filter(Boolean).join(' › ')} are already filled.</p>
+                  </div>
+                  <p className="text-xs text-zinc-400">Existing active members:</p>
+                  {postDetail.members.map(m => (
+                    <div key={m.id} className="flex items-center gap-2 p-2 bg-zinc-900 rounded">
+                      <Avatar className="h-9 w-9 border border-red-600"><AvatarImage src={m.photo} /><AvatarFallback className="bg-red-700 text-xs">{m.name?.[0]}</AvatarFallback></Avatar>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-white text-sm font-bold">{m.name}</p>
+                        <p className="text-xs text-zinc-500">{m.designation} • 📱 {m.mobile}</p>
+                      </div>
+                      {m.verified && <CheckCheck className="h-4 w-4 text-blue-500" />}
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              <Button onClick={() => setStep(1)} variant="outline" className="w-full border-zinc-800 bg-zinc-900 text-white mt-2">← Back</Button>
+            </>
+          )}
+
+          {/* STEP 3: Profile */}
           {step === 3 && (
             <>
-              <p className="text-xs text-zinc-500 mb-1">Profile & Social</p>
+              <div className="bg-green-950/30 border border-green-700 rounded-lg p-2 mb-2">
+                <p className="text-green-300 text-xs">✅ Applying for: <span className="font-bold">{selectedPost?.name}</span> • {[location.state, location.district, location.city].filter(Boolean).join(' › ')} • Fee: ₹{selectedPost?.joiningFee}</p>
+              </div>
+              <p className="text-xs text-zinc-500">Basic Information</p>
+              <Input placeholder="Full Name *" value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} className="bg-zinc-900 border-zinc-800 text-white" />
+              <Input type="email" placeholder="Email *" value={form.email} onChange={e => setForm({ ...form, email: e.target.value })} className="bg-zinc-900 border-zinc-800 text-white" />
+              <Input type="password" placeholder="Password *" value={form.password} onChange={e => setForm({ ...form, password: e.target.value })} className="bg-zinc-900 border-zinc-800 text-white" />
+              <Input placeholder="Mobile Number *" value={form.mobile} onChange={e => setForm({ ...form, mobile: e.target.value })} className="bg-zinc-900 border-zinc-800 text-white" />
               <div className="grid grid-cols-2 gap-2">
-                <div className="space-y-1">
-                  <p className="text-xs text-zinc-400">Profile Logo</p>
-                  <input ref={profileRef} type="file" accept="image/*" capture="environment" onChange={e => handleImg(e, 'profilePhoto')} className="hidden" />
+                <Input placeholder="Aadhaar" value={form.aadhaar} onChange={e => setForm({ ...form, aadhaar: e.target.value })} className="bg-zinc-900 border-zinc-800 text-white" />
+                <Input placeholder="PAN" value={form.pan} onChange={e => setForm({ ...form, pan: e.target.value.toUpperCase() })} className="bg-zinc-900 border-zinc-800 text-white font-mono" />
+              </div>
+              <Textarea placeholder="Address" value={form.address} onChange={e => setForm({ ...form, address: e.target.value })} className="bg-zinc-900 border-zinc-800 text-white" rows={2} />
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <p className="text-xs text-zinc-400 mb-1">Profile Photo</p>
+                  <input ref={profileRef} type="file" accept="image/*" onChange={e => handleImg(e, 'profilePhoto')} className="hidden" />
                   <button onClick={() => profileRef.current?.click()} className="w-full aspect-square bg-zinc-900 border-2 border-dashed border-zinc-700 hover:border-red-600 rounded-lg flex items-center justify-center overflow-hidden">
                     {form.profilePhoto ? <img src={form.profilePhoto} className="w-full h-full object-cover" /> : <Camera className="h-6 w-6 text-zinc-500" />}
                   </button>
                 </div>
-                <div className="space-y-1">
-                  <p className="text-xs text-zinc-400">Cover Banner</p>
+                <div>
+                  <p className="text-xs text-zinc-400 mb-1">Cover Banner</p>
                   <input ref={bannerRef} type="file" accept="image/*" onChange={e => handleImg(e, 'coverBanner')} className="hidden" />
                   <button onClick={() => bannerRef.current?.click()} className="w-full aspect-square bg-zinc-900 border-2 border-dashed border-zinc-700 hover:border-red-600 rounded-lg flex items-center justify-center overflow-hidden">
                     {form.coverBanner ? <img src={form.coverBanner} className="w-full h-full object-cover" /> : <ImageIcon className="h-6 w-6 text-zinc-500" />}
                   </button>
                 </div>
               </div>
-              <Textarea placeholder="Short Bio (e.g. Senior crime reporter with 5+ years)" value={form.bio} onChange={e => setForm({ ...form, bio: e.target.value })} className="bg-zinc-900 border-zinc-800 text-white" rows={2} />
-              <Input placeholder="Experience (e.g. 3 years)" value={form.experience} onChange={e => setForm({ ...form, experience: e.target.value })} className="bg-zinc-900 border-zinc-800 text-white" />
-              <p className="text-xs text-zinc-500 pt-2">Social Media Links (optional)</p>
-              <Input placeholder="Facebook URL" value={form.socialFacebook} onChange={e => setForm({ ...form, socialFacebook: e.target.value })} className="bg-zinc-900 border-zinc-800 text-white" />
-              <Input placeholder="Twitter / X URL" value={form.socialTwitter} onChange={e => setForm({ ...form, socialTwitter: e.target.value })} className="bg-zinc-900 border-zinc-800 text-white" />
-              <Input placeholder="Instagram URL" value={form.socialInstagram} onChange={e => setForm({ ...form, socialInstagram: e.target.value })} className="bg-zinc-900 border-zinc-800 text-white" />
-              <Input placeholder="YouTube URL" value={form.socialYoutube} onChange={e => setForm({ ...form, socialYoutube: e.target.value })} className="bg-zinc-900 border-zinc-800 text-white" />
+              <Textarea placeholder="Bio" value={form.bio} onChange={e => setForm({ ...form, bio: e.target.value })} className="bg-zinc-900 border-zinc-800 text-white" rows={2} />
+              <Input placeholder="Experience" value={form.experience} onChange={e => setForm({ ...form, experience: e.target.value })} className="bg-zinc-900 border-zinc-800 text-white" />
+              <Input placeholder="Referral Code (optional)" value={form.referralCode} onChange={e => setForm({ ...form, referralCode: e.target.value.toUpperCase() })} className="bg-zinc-900 border-purple-900/50 text-white font-mono" />
               <div className="flex gap-2">
                 <Button onClick={() => setStep(2)} variant="outline" className="flex-1 border-zinc-800 bg-zinc-900 text-white">← Back</Button>
                 <Button onClick={submit} disabled={loading} className="flex-1 bg-red-600 hover:bg-red-700">
-                  {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Register'}
+                  {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Submit & Pay'}
                 </Button>
               </div>
             </>
           )}
+
+          {/* STEP 4: Payment */}
+          {step === 4 && registered && (
+            <>
+              <div className="text-center space-y-3">
+                <CheckCircle2 className="h-14 w-14 text-green-500 mx-auto" />
+                <h3 className="text-xl font-black text-white">Application Submitted!</h3>
+                <p className="text-sm text-zinc-400">Your application for <span className="text-red-400 font-bold">{selectedPost?.name}</span> is pending. Complete payment of ₹{selectedPost?.joiningFee} to activate.</p>
+                <div className="bg-zinc-900 rounded-lg p-3 text-left text-sm space-y-1">
+                  <div className="flex justify-between"><span className="text-zinc-400">Post:</span><span className="text-white">{selectedPost?.name}</span></div>
+                  <div className="flex justify-between"><span className="text-zinc-400">Location:</span><span className="text-white">{[location.state, location.district, location.city].filter(Boolean).join(' › ')}</span></div>
+                  <div className="flex justify-between"><span className="text-zinc-400">Referral:</span><span className="text-red-400 font-mono">{registered.referralCode}</span></div>
+                  <div className="flex justify-between border-t border-zinc-800 pt-1 mt-1"><span className="text-zinc-400">Joining Fee:</span><span className="font-black text-green-400">₹{selectedPost?.joiningFee}</span></div>
+                </div>
+                <Button onClick={payJoiningFee} className="w-full bg-red-600 hover:bg-red-700"><Send className="h-4 w-4 mr-2" /> Pay ₹{selectedPost?.joiningFee} with Razorpay</Button>
+                <Button onClick={() => onLogin(registered)} variant="ghost" className="w-full text-zinc-400">Skip payment (demo) →</Button>
+              </div>
+            </>
+          )}
+
           <Button onClick={() => onNav('login')} variant="ghost" className="w-full text-zinc-400 hover:text-white">
             Already have account? <span className="text-red-500 ml-1 font-semibold">Login</span>
           </Button>
@@ -877,6 +983,7 @@ const JoinForm = ({ onLogin, onNav }) => {
     </div>
   )
 }
+
 
 // ============ AD CREATION DIALOG (Reporter Paid Flow) ============
 const AdCreatorDialog = ({ token, user, onClose }) => {
