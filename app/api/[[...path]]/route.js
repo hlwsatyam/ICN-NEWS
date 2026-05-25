@@ -520,8 +520,12 @@ async function handler(request, { params }) {
 
     if (path.startsWith('ads/') && method === 'DELETE') {
       const auth = getAuthUser(request);
-      if (!auth || auth.role !== 'admin') return json({ error: 'Forbidden' }, 403);
+      if (!auth) return json({ error: 'Forbidden' }, 403);
       const id = path.split('/')[1];
+      const ad = await db.collection('ads').findOne({ id });
+      if (!ad) return json({ error: 'Not found' }, 404);
+      // Reporter can delete own ads; admin can delete any
+      if (auth.role !== 'admin' && ad.reporterId !== auth.id) return json({ error: 'Forbidden' }, 403);
       await db.collection('ads').deleteOne({ id });
       return json({ ok: true });
     }
@@ -588,6 +592,115 @@ async function handler(request, { params }) {
       const id = path.split('/')[1];
       await db.collection('social').updateOne({ id }, { $inc: { likes: 1 } });
       return json({ ok: true });
+    }
+
+    // ============ JOB POSTS / RECRUITMENT ============
+    if (path === 'posts' && method === 'GET') {
+      const url = new URL(request.url);
+      const status = url.searchParams.get('status') || 'open';
+      const state = url.searchParams.get('state');
+      const district = url.searchParams.get('district');
+      const city = url.searchParams.get('city');
+      const q = { status };
+      if (state) q.state = state;
+      if (district) q.district = district;
+      if (city) q.city = city;
+      const posts = await db.collection('posts').find(q, { projection: { _id: 0 } }).sort({ createdAt: -1 }).toArray();
+      // Compute available seats for each
+      const enriched = await Promise.all(posts.map(async (p) => {
+        const filled = await db.collection('users').countDocuments({
+          appliedPostId: p.id,
+          ...(p.state ? { state: p.state } : {}),
+          ...(p.district ? { district: p.district } : {}),
+          ...(p.city ? { city: p.city } : {}),
+          applicationStatus: 'approved'
+        });
+        return { ...p, filledSeats: filled, availableSeats: Math.max(0, (p.totalVacancy || 0) - filled) };
+      }));
+      return json({ posts: enriched });
+    }
+
+    if (path === 'posts' && method === 'POST') {
+      const auth = getAuthUser(request);
+      if (!auth || auth.role !== 'admin') return json({ error: 'Forbidden' }, 403);
+      const body = await request.json();
+      const id = uuid();
+      const post = {
+        id,
+        name: body.name,
+        joiningFee: parseFloat(body.joiningFee) || 0,
+        levelType: body.levelType, // 'state' | 'district' | 'city'
+        state: body.state || null,
+        district: body.district || null,
+        city: body.city || null,
+        totalVacancy: parseInt(body.totalVacancy) || 1,
+        description: body.description || '',
+        responsibilities: body.responsibilities || [],
+        status: 'open',
+        createdAt: new Date()
+      };
+      await db.collection('posts').insertOne(post);
+      const { _id, ...safe } = post;
+      return json({ post: safe });
+    }
+
+    if (path.startsWith('posts/') && path.split('/').length === 2 && method === 'GET') {
+      const id = path.split('/')[1];
+      const p = await db.collection('posts').findOne({ id }, { projection: { _id: 0 } });
+      if (!p) return json({ error: 'Not found' }, 404);
+      // Get approved members
+      const members = await db.collection('users').find(
+        {
+          appliedPostId: id,
+          applicationStatus: 'approved'
+        },
+        { projection: { password: 0, _id: 0, aadhaar: 0, pan: 0, address: 0 } }
+      ).toArray();
+      const availableSeats = Math.max(0, (p.totalVacancy || 0) - members.length);
+      return json({ post: p, members, availableSeats, totalFilled: members.length });
+    }
+
+    if (path.startsWith('posts/') && path.endsWith('/apply') && method === 'POST') {
+      const auth = getAuthUser(request);
+      if (!auth) return json({ error: 'Unauthorized' }, 401);
+      const id = path.split('/')[1];
+      const post = await db.collection('posts').findOne({ id });
+      if (!post) return json({ error: 'Post not found' }, 404);
+      const filled = await db.collection('users').countDocuments({ appliedPostId: id, applicationStatus: 'approved' });
+      if (filled >= post.totalVacancy) return json({ error: 'All positions filled' }, 400);
+      await db.collection('users').updateOne({ id: auth.id }, {
+        $set: {
+          appliedPostId: id, appliedPostName: post.name,
+          applicationStatus: 'pending', appliedAt: new Date()
+        }
+      });
+      return json({ ok: true, message: 'Application submitted! Pay joining fee and await admin approval.' });
+    }
+
+    if (path.startsWith('posts/') && path.split('/').length === 2 && method === 'DELETE') {
+      const auth = getAuthUser(request);
+      if (!auth || auth.role !== 'admin') return json({ error: 'Forbidden' }, 403);
+      const id = path.split('/')[1];
+      await db.collection('posts').deleteOne({ id });
+      return json({ ok: true });
+    }
+
+    if (path.startsWith('users/') && path.endsWith('/approve-application') && method === 'POST') {
+      const auth = getAuthUser(request);
+      if (!auth || auth.role !== 'admin') return json({ error: 'Forbidden' }, 403);
+      const userId = path.split('/')[1];
+      await db.collection('users').updateOne({ id: userId }, { $set: { applicationStatus: 'approved', verified: true, approvedAt: new Date() } });
+      return json({ ok: true });
+    }
+
+    if (path === 'applications/pending' && method === 'GET') {
+      const auth = getAuthUser(request);
+      if (!auth || auth.role !== 'admin') return json({ error: 'Forbidden' }, 403);
+      const apps = await db.collection('users').find(
+        { applicationStatus: 'pending', appliedPostId: { $ne: null } },
+        { projection: { password: 0, _id: 0 } }
+      ).sort({ appliedAt: -1 }).toArray();
+      return json({ applications: apps });
     }
 
     // ============ HEALTH ============

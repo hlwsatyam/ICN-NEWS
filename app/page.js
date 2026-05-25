@@ -83,6 +83,9 @@ const Header = ({ user, onLogout, onNav, view }) => {
             <Bell className="h-5 w-5" />
             <span className="absolute top-1 right-1 h-2 w-2 bg-red-500 rounded-full animate-ping" />
           </Button>
+          <Button onClick={() => onNav('jobs')} variant="ghost" size="sm" className="hidden md:flex text-white hover:bg-red-950">
+            <Award className="h-4 w-4 mr-1" /> Careers
+          </Button>
           {user ? (
             <>
               {user.role === 'admin' && (
@@ -1218,6 +1221,62 @@ const Dashboard = ({ user, token }) => {
         ))}
       </div>
 
+      {/* HERO QUICK ACTIONS - super visible */}
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+        <button onClick={() => setCreating(true)} className="bg-gradient-to-br from-red-600 to-red-800 rounded-2xl p-5 text-left hover:scale-[1.02] transition-transform shadow-2xl shadow-red-900/40 border-2 border-red-500/30">
+          <Newspaper className="h-8 w-8 text-white mb-2" />
+          <p className="font-black text-white text-base">📰 Publish News</p>
+          <p className="text-xs text-white/80 mt-1">Free • Auto-publishes instantly</p>
+        </button>
+        <button onClick={() => setShowAdCreator(true)} className="bg-gradient-to-br from-yellow-500 to-orange-700 rounded-2xl p-5 text-left hover:scale-[1.02] transition-transform shadow-2xl shadow-orange-900/40 border-2 border-yellow-400/40 relative">
+          <div className="absolute -top-2 -right-2 bg-green-600 text-white text-xs font-black px-2 py-1 rounded-full shadow-lg">₹299</div>
+          <Megaphone className="h-8 w-8 text-white mb-2" />
+          <p className="font-black text-white text-base">🎯 Create Advertisement</p>
+          <p className="text-xs text-white/90 mt-1">Bottom or Middle banner • Pay ₹299</p>
+        </button>
+        <button onClick={() => setShowSocial(true)} className="bg-gradient-to-br from-pink-600 to-purple-700 rounded-2xl p-5 text-left hover:scale-[1.02] transition-transform shadow-2xl shadow-purple-900/40 border-2 border-pink-400/30">
+          <Play className="h-8 w-8 text-white mb-2" />
+          <p className="font-black text-white text-base">🎬 Post Reel / Video</p>
+          <p className="text-xs text-white/80 mt-1">YouTube / Insta / FB / Twitter</p>
+        </button>
+      </div>
+
+      {/* My Ads */}
+      <Card className="bg-zinc-950 border-zinc-800">
+        <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+          <CardTitle className="text-white text-base flex items-center gap-2"><Megaphone className="h-4 w-4 text-yellow-500" /> My Advertisements ({myAds.length})</CardTitle>
+          <Button onClick={() => setShowAdCreator(true)} size="sm" className="bg-yellow-600 hover:bg-yellow-700 h-7"><Plus className="h-3 w-3 mr-1" /> New Ad ₹299</Button>
+        </CardHeader>
+        <CardContent className="space-y-2">
+          {myAds.length === 0 && (
+            <div className="text-center py-6">
+              <Megaphone className="h-10 w-10 mx-auto text-zinc-700 mb-2" />
+              <p className="text-zinc-500 text-sm">No advertisements yet</p>
+              <Button onClick={() => setShowAdCreator(true)} size="sm" className="bg-red-600 hover:bg-red-700 mt-3">Create Your First Ad — ₹299</Button>
+            </div>
+          )}
+          {myAds.map(a => (
+            <div key={a.id} className="flex items-center gap-3 p-2 bg-zinc-900 rounded">
+              <img src={a.banner} className="h-14 w-24 object-cover rounded flex-shrink-0" />
+              <div className="flex-1 min-w-0">
+                <p className="text-white text-sm font-bold capitalize">{a.type} Ad</p>
+                <p className="text-xs text-zinc-500">{a.impressions || 0} views • {a.clicks || 0} clicks • {a.duration}d</p>
+                {a.adminNote && <p className="text-xs text-red-400 mt-1">Reason: {a.adminNote}</p>}
+              </div>
+              <div className="flex flex-col items-end gap-1">
+                <Badge className={a.status === 'approved' ? 'bg-green-700' : a.status === 'pending' ? 'bg-yellow-700' : 'bg-red-700'}>{a.status}</Badge>
+                <Button onClick={async () => {
+                  if (!confirm('Delete this ad? You will need to pay ₹299 again to create a new one.')) return
+                  await fetch(`${API}/ads/${a.id}`, { method: 'DELETE', headers: { Authorization: `Bearer ${token}` } })
+                  toast.success('Ad deleted. Click "New Ad ₹299" to create another.')
+                  loadData()
+                }} size="icon" variant="ghost" className="h-7 w-7 text-red-500 hover:bg-red-950"><Trash2 className="h-3.5 w-3.5" /></Button>
+              </div>
+            </div>
+          ))}
+        </CardContent>
+      </Card>
+
       {/* Income Wallet */}
       <Card className="bg-gradient-to-br from-green-950/40 to-zinc-950 border-green-900/40">
         <CardContent className="p-6 flex items-center justify-between flex-wrap gap-3">
@@ -1548,23 +1607,25 @@ const AdminPanel = ({ token, user }) => {
   const [payoutSummary, setPayoutSummary] = useState({})
   const [pendingAds, setPendingAds] = useState([])
   const [allAds, setAllAds] = useState([])
+  const [posts, setPosts] = useState([])
+  const [applications, setApplications] = useState([])
+  const [showJobDialog, setShowJobDialog] = useState(false)
 
   const load = async () => {
-    const [n, s, b, p, ap, aa] = await Promise.all([
+    const [n, s, b, p, ap, aa, jp, apps] = await Promise.all([
       fetch(`${API}/news?status=pending`).then(r => r.json()),
       fetch(`${API}/stats`, { headers: { Authorization: `Bearer ${token}` } }).then(r => r.json()),
       fetch(`${API}/breaking`).then(r => r.json()),
       fetch(`${API}/payouts?all=true`, { headers: { Authorization: `Bearer ${token}` } }).then(r => r.json()),
       fetch(`${API}/ads?status=pending`).then(r => r.json()),
-      fetch(`${API}/ads?status=approved`).then(r => r.json())
+      fetch(`${API}/ads?status=approved`).then(r => r.json()),
+      fetch(`${API}/posts`).then(r => r.json()),
+      fetch(`${API}/applications/pending`, { headers: { Authorization: `Bearer ${token}` } }).then(r => r.json())
     ])
-    setPending(n.news || [])
-    setStats(s)
-    setBreaking(b.breaking || [])
-    setPayouts(p.payouts || [])
-    setPayoutSummary(p.summary || {})
-    setPendingAds(ap.ads || [])
-    setAllAds(aa.ads || [])
+    setPending(n.news || []); setStats(s); setBreaking(b.breaking || [])
+    setPayouts(p.payouts || []); setPayoutSummary(p.summary || {})
+    setPendingAds(ap.ads || []); setAllAds(aa.ads || [])
+    setPosts(jp.posts || []); setApplications(apps.applications || [])
   }
   useEffect(() => { load() }, [])
 
@@ -1582,6 +1643,17 @@ const AdminPanel = ({ token, user }) => {
     if (!confirm('Delete this ad permanently?')) return
     await fetch(`${API}/ads/${id}`, { method: 'DELETE', headers: { Authorization: `Bearer ${token}` } })
     load()
+  }
+
+  const deletePost = async (id) => {
+    if (!confirm('Delete this job post?')) return
+    await fetch(`${API}/posts/${id}`, { method: 'DELETE', headers: { Authorization: `Bearer ${token}` } })
+    toast.success('Post deleted'); load()
+  }
+
+  const approveApplication = async (userId) => {
+    await fetch(`${API}/users/${userId}/approve-application`, { method: 'POST', headers: { Authorization: `Bearer ${token}` } })
+    toast.success('Application approved'); load()
   }
 
   const processPayout = async (id, status) => {
@@ -1654,6 +1726,8 @@ const AdminPanel = ({ token, user }) => {
         <TabsList className="bg-zinc-950 border border-zinc-800 flex-wrap h-auto">
           <TabsTrigger value="pending" className="data-[state=active]:bg-red-600">News ({pending.length})</TabsTrigger>
           <TabsTrigger value="ads" className="data-[state=active]:bg-red-600">Ads ({pendingAds.length})</TabsTrigger>
+          <TabsTrigger value="jobs" className="data-[state=active]:bg-red-600">Jobs ({posts.length})</TabsTrigger>
+          <TabsTrigger value="apps" className="data-[state=active]:bg-red-600">Apps ({applications.length})</TabsTrigger>
           <TabsTrigger value="breaking" className="data-[state=active]:bg-red-600">Breaking</TabsTrigger>
           <TabsTrigger value="payouts" className="data-[state=active]:bg-red-600">Payouts ({payouts.filter(p => p.status === 'pending').length})</TabsTrigger>
           <TabsTrigger value="analytics" className="data-[state=active]:bg-red-600">Analytics</TabsTrigger>
@@ -1699,6 +1773,58 @@ const AdminPanel = ({ token, user }) => {
         <TabsContent value="analytics" className="mt-4">
           <AnalyticsPanel token={token} />
         </TabsContent>
+
+        <TabsContent value="jobs" className="mt-4 space-y-3">
+          <div className="flex justify-between items-center">
+            <h3 className="text-white font-bold flex items-center gap-2"><Award className="h-4 w-4 text-yellow-500" /> Recruitment Posts</h3>
+            <Button onClick={() => setShowJobDialog(true)} size="sm" className="bg-red-600 hover:bg-red-700"><Plus className="h-4 w-4 mr-1" /> Create Post</Button>
+          </div>
+          {posts.length === 0 && <p className="text-zinc-500 text-center py-8">No job posts. Click "Create Post" to add.</p>}
+          {posts.map(p => (
+            <Card key={p.id} className="bg-zinc-950 border-zinc-800">
+              <CardContent className="p-4 flex flex-col md:flex-row gap-4 items-start">
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 flex-wrap mb-1">
+                    <p className="font-bold text-white">{p.name}</p>
+                    <Badge className="bg-yellow-600">₹{p.joiningFee}</Badge>
+                    <Badge variant="outline" className="capitalize text-red-400 border-red-900">{p.levelType}</Badge>
+                  </div>
+                  <p className="text-xs text-zinc-400">📍 {[p.state, p.district, p.city].filter(Boolean).join(' › ')}</p>
+                  <p className="text-sm text-zinc-300 mt-1">{p.description}</p>
+                  <div className="flex gap-4 mt-2 text-xs">
+                    <span className="text-green-500">Available: {p.availableSeats}</span>
+                    <span className="text-yellow-500">Filled: {p.filledSeats || 0}</span>
+                    <span className="text-zinc-400">Total: {p.totalVacancy}</span>
+                  </div>
+                </div>
+                <Button onClick={() => deletePost(p.id)} size="icon" variant="ghost" className="text-red-500"><Trash2 className="h-4 w-4" /></Button>
+              </CardContent>
+            </Card>
+          ))}
+        </TabsContent>
+
+        <TabsContent value="apps" className="mt-4 space-y-3">
+          <h3 className="text-white font-bold flex items-center gap-2"><UserPlus className="h-4 w-4 text-blue-500" /> Pending Applications</h3>
+          {applications.length === 0 && <p className="text-zinc-500 text-center py-8">No pending applications.</p>}
+          {applications.map(a => (
+            <Card key={a.id} className="bg-zinc-950 border-zinc-800">
+              <CardContent className="p-4 flex items-center gap-3">
+                <Avatar className="h-12 w-12 border border-red-600">
+                  <AvatarImage src={a.photo} />
+                  <AvatarFallback className="bg-red-700">{a.name?.[0]}</AvatarFallback>
+                </Avatar>
+                <div className="flex-1 min-w-0">
+                  <p className="font-bold text-white">{a.name}</p>
+                  <p className="text-xs text-zinc-400">📱 {a.mobile} • 📧 {a.email}</p>
+                  <p className="text-xs text-zinc-500">Applied for: <span className="text-yellow-400">{a.appliedPostName}</span> • {a.state}{a.district ? ` › ${a.district}` : ''}</p>
+                  {a.bio && <p className="text-xs italic text-zinc-500 mt-1">"{a.bio}"</p>}
+                </div>
+                <Button onClick={() => approveApplication(a.id)} size="sm" className="bg-green-700 hover:bg-green-800"><CheckCircle2 className="h-4 w-4 mr-1" /> Approve</Button>
+              </CardContent>
+            </Card>
+          ))}
+        </TabsContent>
+
 
         <TabsContent value="payouts" className="mt-4 space-y-3">
           <div className="grid grid-cols-3 gap-3">
@@ -1810,6 +1936,8 @@ const AdminPanel = ({ token, user }) => {
           )}
         </TabsContent>
       </Tabs>
+
+      {showJobDialog && <JobPostDialog token={token} onClose={(refresh) => { setShowJobDialog(false); if (refresh) load() }} />}
     </div>
   )
 }
@@ -1958,6 +2086,175 @@ const AnalyticsPanel = ({ token }) => {
   )
 }
 
+// ============ JOB POST CREATE DIALOG (Admin) ============
+const JobPostDialog = ({ token, onClose }) => {
+  const [form, setForm] = useState({ name: '', joiningFee: 500, levelType: 'state', state: '', district: '', city: '', totalVacancy: 1, description: '', responsibilities: [] })
+  const [respInput, setRespInput] = useState('')
+  const [states, setStates] = useState([])
+  const [submitting, setSubmitting] = useState(false)
+  useEffect(() => { fetch(`${API}/states`).then(r => r.json()).then(d => setStates(d.states || [])) }, [])
+  const districts = states.find(s => s.name === form.state)?.districts || []
+
+  const addResp = () => {
+    if (!respInput.trim()) return
+    setForm({ ...form, responsibilities: [...form.responsibilities, respInput.trim()] })
+    setRespInput('')
+  }
+  const submit = async () => {
+    if (!form.name || !form.levelType) return toast.error('Name & Level required')
+    setSubmitting(true)
+    const r = await fetch(`${API}/posts`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: JSON.stringify(form)
+    }).then(r => r.json())
+    setSubmitting(false)
+    if (r.post) { toast.success('Job post created!'); onClose(true) } else toast.error(r.error || 'Failed')
+  }
+  return (
+    <Dialog open onOpenChange={() => onClose(false)}>
+      <DialogContent className="max-w-2xl bg-zinc-950 border-zinc-800 text-white max-h-[90vh] overflow-y-auto">
+        <DialogHeader><DialogTitle className="flex items-center gap-2"><Award className="h-5 w-5 text-yellow-500" /> Create Recruitment Post</DialogTitle></DialogHeader>
+        <div className="space-y-3">
+          <Input placeholder="Post Name (e.g. State Coordinator)" value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} className="bg-zinc-900 border-zinc-800 text-white" />
+          <div className="grid grid-cols-2 gap-2">
+            <Input type="number" placeholder="Joining Fees (₹)" value={form.joiningFee} onChange={e => setForm({ ...form, joiningFee: e.target.value })} className="bg-zinc-900 border-zinc-800 text-white" />
+            <Input type="number" placeholder="Total Vacancies" value={form.totalVacancy} onChange={e => setForm({ ...form, totalVacancy: e.target.value })} className="bg-zinc-900 border-zinc-800 text-white" />
+          </div>
+          <div>
+            <p className="text-xs text-zinc-400 mb-1">Level Type</p>
+            <div className="grid grid-cols-3 gap-2">
+              {['state', 'district', 'city'].map(lt => (
+                <Button key={lt} onClick={() => setForm({ ...form, levelType: lt, state: '', district: '', city: '' })} className={`capitalize ${form.levelType === lt ? 'bg-red-600 hover:bg-red-700' : 'bg-zinc-900 hover:bg-zinc-800'}`}>{lt} Level</Button>
+              ))}
+            </div>
+          </div>
+          {['state', 'district', 'city'].includes(form.levelType) && (
+            <Select value={form.state} onValueChange={v => setForm({ ...form, state: v, district: '', city: '' })}>
+              <SelectTrigger className="bg-zinc-900 border-zinc-800"><SelectValue placeholder="Select State *" /></SelectTrigger>
+              <SelectContent className="bg-zinc-950 border-zinc-800 text-white">
+                {states.map(s => <SelectItem key={s.name} value={s.name}>{s.name}</SelectItem>)}
+              </SelectContent>
+            </Select>
+          )}
+          {(form.levelType === 'district' || form.levelType === 'city') && form.state && (
+            <Select value={form.district} onValueChange={v => setForm({ ...form, district: v, city: '' })}>
+              <SelectTrigger className="bg-zinc-900 border-zinc-800"><SelectValue placeholder="Select District *" /></SelectTrigger>
+              <SelectContent className="bg-zinc-950 border-zinc-800 text-white">
+                {districts.map(d => <SelectItem key={d} value={d}>{d}</SelectItem>)}
+              </SelectContent>
+            </Select>
+          )}
+          {form.levelType === 'city' && form.district && (
+            <Input placeholder="City Name *" value={form.city} onChange={e => setForm({ ...form, city: e.target.value })} className="bg-zinc-900 border-zinc-800 text-white" />
+          )}
+          <Textarea placeholder="Post Description" value={form.description} onChange={e => setForm({ ...form, description: e.target.value })} className="bg-zinc-900 border-zinc-800 text-white" rows={3} />
+          <div>
+            <p className="text-xs text-zinc-400 mb-1">Responsibilities (add multiple)</p>
+            <div className="flex gap-2">
+              <Input placeholder="e.g. Crime reporting" value={respInput} onChange={e => setRespInput(e.target.value)} onKeyDown={e => e.key === 'Enter' && (e.preventDefault(), addResp())} className="bg-zinc-900 border-zinc-800 text-white" />
+              <Button onClick={addResp} className="bg-red-600 hover:bg-red-700"><Plus className="h-4 w-4" /></Button>
+            </div>
+            <div className="space-y-1 mt-2">
+              {form.responsibilities.map((r, i) => (
+                <div key={i} className="flex items-center justify-between bg-zinc-900 px-2 py-1 rounded text-sm">
+                  <span className="text-zinc-300">• {r}</span>
+                  <button onClick={() => setForm({ ...form, responsibilities: form.responsibilities.filter((_, j) => j !== i) })} className="text-red-500"><X className="h-3 w-3" /></button>
+                </div>
+              ))}
+            </div>
+          </div>
+          <Button onClick={submit} disabled={submitting} className="w-full bg-red-600 hover:bg-red-700">
+            {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Create Post'}
+          </Button>
+        </div>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+// ============ JOBS / CAREERS PAGE (Public) ============
+const JobsPage = ({ user, token, onBack }) => {
+  const [posts, setPosts] = useState([])
+  const [loading, setLoading] = useState(true)
+  const load = async () => {
+    setLoading(true)
+    const r = await fetch(`${API}/posts`).then(r => r.json())
+    setPosts(r.posts || []); setLoading(false)
+  }
+  useEffect(() => { load() }, [])
+
+  const apply = async (postId) => {
+    if (!user) return toast.error('Please login first')
+    if (!token) return
+    const r = await fetch(`${API}/posts/${postId}/apply`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }
+    }).then(r => r.json())
+    if (r.ok) toast.success(r.message)
+    else toast.error(r.error || 'Failed')
+    load()
+  }
+
+  return (
+    <div className="max-w-5xl mx-auto px-4 py-6 pb-24 md:pb-12">
+      <Button onClick={onBack} variant="ghost" className="mb-4 text-white"><ArrowLeft className="h-4 w-4 mr-2" /> Back</Button>
+      <div className="bg-gradient-to-r from-red-700 to-red-900 rounded-2xl p-6 mb-6 shadow-2xl shadow-red-950/50">
+        <h1 className="text-3xl font-black text-white">Open Vacancies & Careers</h1>
+        <p className="text-red-100 mt-1">Join India's biggest crime news network as a Reporter, Coordinator, or Member.</p>
+      </div>
+      {loading && <div className="text-center py-8"><Loader2 className="h-6 w-6 animate-spin mx-auto" /></div>}
+      {!loading && posts.length === 0 && <p className="text-zinc-500 text-center py-12">No open positions right now. Check back soon!</p>}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        {posts.map(p => {
+          const filled = p.availableSeats <= 0
+          return (
+            <Card key={p.id} className={`bg-zinc-950 border ${filled ? 'border-zinc-800' : 'border-red-900/40'} hover:border-red-600 transition-colors`}>
+              <CardHeader>
+                <div className="flex items-center justify-between flex-wrap gap-2">
+                  <CardTitle className="text-white text-lg">{p.name}</CardTitle>
+                  <Badge className="bg-yellow-600">₹{p.joiningFee} fees</Badge>
+                </div>
+                <CardDescription className="text-zinc-400 flex items-center gap-2 flex-wrap">
+                  <Badge variant="outline" className="capitalize text-red-400 border-red-900">{p.levelType} level</Badge>
+                  {p.state && <span>📍 {p.state}{p.district ? ` › ${p.district}` : ''}{p.city ? ` › ${p.city}` : ''}</span>}
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                {p.description && <p className="text-sm text-zinc-300">{p.description}</p>}
+                {p.responsibilities?.length > 0 && (
+                  <div>
+                    <p className="text-xs font-bold text-zinc-400 mb-1">Responsibilities:</p>
+                    <ul className="space-y-0.5 text-sm text-zinc-300">
+                      {p.responsibilities.map((r, i) => <li key={i}>• {r}</li>)}
+                    </ul>
+                  </div>
+                )}
+                <div className="bg-zinc-900 rounded-lg p-3 flex items-center justify-between">
+                  <div>
+                    <p className="text-xs text-zinc-500">Vacancy</p>
+                    <p className="text-lg font-black text-white">{p.filledSeats || 0} / {p.totalVacancy}</p>
+                  </div>
+                  <div className="text-right">
+                    <p className="text-xs text-zinc-500">Available Seats</p>
+                    <p className={`text-lg font-black ${filled ? 'text-red-500' : 'text-green-500'}`}>{p.availableSeats}</p>
+                  </div>
+                </div>
+                {filled ? (
+                  <>
+                    <Badge className="w-full justify-center bg-red-800 py-2">⛔ All Positions Filled</Badge>
+                    <p className="text-xs text-zinc-500 italic text-center">This posting is occupied by approved members.</p>
+                  </>
+                ) : (
+                  <Button onClick={() => apply(p.id)} className="w-full bg-red-600 hover:bg-red-700">Apply Now • ₹{p.joiningFee}</Button>
+                )}
+              </CardContent>
+            </Card>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
 // ============ MAIN APP ============
 const App = () => {
   const [view, setView] = useState('home')
@@ -2012,11 +2309,12 @@ const App = () => {
           {view === 'article' && article && <ArticleView news={article} onBack={() => setView('home')} onState={onState} />}
           {view === 'state' && activeState && <StatePage stateName={activeState} onBack={() => setView('home')} onArticle={onArticle} />}
           {view === 'social' && (
-            <div className="max-w-7xl mx-auto px-4 py-6">
+            <div className="max-w-7xl mx-auto px-4 py-6 pb-24 md:pb-6">
               <h2 className="text-2xl md:text-3xl font-black text-white mb-4 flex items-center gap-2"><Play className="h-6 w-6 text-red-500" /> Reels & Video Feed</h2>
               <SocialFeed />
             </div>
           )}
+          {view === 'jobs' && <JobsPage user={user} token={token} onBack={() => setView('home')} />}
           {view === 'login' && <LoginForm onLogin={onLogin} onNav={setView} />}
           {view === 'join' && <JoinForm onLogin={onLogin} onNav={setView} />}
           {view === 'dashboard' && user && <Dashboard user={user} token={token} />}
