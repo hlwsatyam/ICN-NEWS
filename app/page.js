@@ -3,6 +3,7 @@
 import { useEffect, useState, useRef } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import RichEditor from '@/components/RichEditor'
+import IndiaLocationPicker from '@/components/IndiaLocation'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
@@ -21,7 +22,8 @@ import {
   CheckCircle2, XCircle, Trash2, Plus, Radio, Image as ImageIcon, Menu, X,
   ArrowLeft, Wallet, FileText, Award, Bike, IdCard, Cloud, Download,
   BarChart3, MessageCircle, Building2, Home, User, Heart, Play, AlertTriangle,
-  CheckCheck, Facebook, Twitter, Instagram, Youtube, Camera, Megaphone, EyeOff, Star
+  CheckCheck, Facebook, Twitter, Instagram, Youtube, Camera, Megaphone, EyeOff, Star,
+  ChevronLeft, ChevronRight, Pause, Maximize2
 } from 'lucide-react'
 import { LineChart, Line, BarChart, Bar, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts'
 
@@ -108,9 +110,6 @@ const Header = ({ user, onLogout, onNav, view }) => {
             <>
               <Button onClick={() => onNav('login')} variant="ghost" size="sm" className="text-white hover:bg-red-950">
                 <LogIn className="h-4 w-4 mr-1" /> Login
-              </Button>
-              <Button onClick={() => onNav('join')} size="sm" className="bg-red-600 hover:bg-red-700 shadow-lg shadow-red-900/50">
-                <UserPlus className="h-4 w-4 mr-1" /> Join Now
               </Button>
             </>
           )}
@@ -533,6 +532,184 @@ const HomeFeed = ({ onArticle, onState }) => {
 }
 
 // ============ ARTICLE VIEW ============
+// ============ IMAGE CAROUSEL (Professional Slider for Article Hero) ============
+const ImageCarousel = ({ images, headline, category, state, district, onState, pdfMode = false }) => {
+  const [idx, setIdx] = useState(0)
+  const [playing, setPlaying] = useState(true)
+  const [loaded, setLoaded] = useState({})
+  const touchX = useRef(null)
+  const total = images?.length || 0
+
+  // Autoplay every 4s
+  useEffect(() => {
+    if (!playing || total <= 1 || pdfMode) return
+    const t = setTimeout(() => setIdx(i => (i + 1) % total), 4000)
+    return () => clearTimeout(t)
+  }, [idx, playing, total, pdfMode])
+
+  // Keyboard navigation
+  useEffect(() => {
+    if (total <= 1 || pdfMode) return
+    const onKey = (e) => {
+      if (e.key === 'ArrowLeft') setIdx(i => (i - 1 + total) % total)
+      else if (e.key === 'ArrowRight') setIdx(i => (i + 1) % total)
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [total, pdfMode])
+
+  if (total === 0) return null
+
+  const goNext = () => setIdx(i => (i + 1) % total)
+  const goPrev = () => setIdx(i => (i - 1 + total) % total)
+
+  const onTouchStart = (e) => { touchX.current = e.touches[0].clientX }
+  const onTouchEnd = (e) => {
+    if (touchX.current == null) return
+    const dx = e.changedTouches[0].clientX - touchX.current
+    if (Math.abs(dx) > 50) (dx < 0 ? goNext : goPrev)()
+    touchX.current = null
+  }
+
+  // PDF mode: render all images stacked vertically with overlay only on first
+  if (pdfMode) {
+    return (
+      <div>
+        {images.map((src, i) => (
+          <div key={i} className="relative w-full" style={{ height: i === 0 ? '28rem' : '22rem' }}>
+            <img src={src} alt={`${headline} ${i + 1}`} className="w-full h-full object-cover" crossOrigin="anonymous" />
+            {i === 0 && (
+              <>
+                <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/30 to-transparent" />
+                <div className="absolute bottom-0 p-6 md:p-8 space-y-3">
+                  <div className="flex flex-wrap gap-2">
+                    <Badge className="bg-red-600 capitalize">{category}</Badge>
+                    <Badge variant="outline" className="text-white border-white/30 backdrop-blur-sm">
+                      <MapPin className="h-3 w-3 mr-1" /> {state} › {district}
+                    </Badge>
+                  </div>
+                  <h1 className="text-2xl md:text-4xl font-black text-white leading-tight">{headline}</h1>
+                </div>
+              </>
+            )}
+          </div>
+        ))}
+      </div>
+    )
+  }
+
+  return (
+    <div className="relative bg-black">
+      {/* Main image stage */}
+      <div
+        className="relative h-72 md:h-[28rem] overflow-hidden select-none group"
+        onTouchStart={onTouchStart}
+        onTouchEnd={onTouchEnd}
+        onMouseEnter={() => total > 1 && setPlaying(false)}
+        onMouseLeave={() => total > 1 && setPlaying(true)}
+      >
+        <AnimatePresence initial={false} mode="wait">
+          <motion.img
+            key={idx}
+            src={images[idx]}
+            alt={`${headline} - ${idx + 1}`}
+            className="absolute inset-0 w-full h-full object-cover"
+            crossOrigin="anonymous"
+            initial={{ opacity: 0, scale: 1.04 }}
+            animate={{ opacity: 1, scale: 1 }}
+            exit={{ opacity: 0, scale: 0.98 }}
+            transition={{ duration: 0.45, ease: 'easeOut' }}
+            onLoad={() => setLoaded(s => ({ ...s, [idx]: true }))}
+            draggable={false}
+          />
+        </AnimatePresence>
+
+        {/* Bottom gradient + headline overlay */}
+        <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/30 to-transparent pointer-events-none" />
+        <div className="absolute bottom-0 left-0 right-0 p-6 md:p-8 space-y-3 z-10 pointer-events-none">
+          <div className="flex flex-wrap gap-2 pointer-events-auto">
+            <Badge className="bg-red-600 capitalize">{category}</Badge>
+            <Badge
+              variant="outline"
+              className="text-white border-white/30 backdrop-blur-sm cursor-pointer hover:bg-red-700/40"
+              onClick={(e) => { e.stopPropagation(); onState?.(state) }}
+            >
+              <MapPin className="h-3 w-3 mr-1" /> {state} › {district}
+            </Badge>
+          </div>
+          <h1 className="text-2xl md:text-4xl font-black text-white leading-tight drop-shadow-2xl">{headline}</h1>
+        </div>
+
+        {total > 1 && (
+          <>
+            {/* Prev / Next buttons */}
+            <button
+              onClick={goPrev}
+              aria-label="Previous image"
+              className="absolute left-2 md:left-4 top-1/2 -translate-y-1/2 z-20 h-10 w-10 md:h-12 md:w-12 rounded-full bg-black/55 hover:bg-red-600 backdrop-blur-md border border-white/20 flex items-center justify-center text-white shadow-xl transition-all"
+            >
+              <ChevronLeft className="h-5 w-5 md:h-6 md:w-6" />
+            </button>
+            <button
+              onClick={goNext}
+              aria-label="Next image"
+              className="absolute right-2 md:right-4 top-1/2 -translate-y-1/2 z-20 h-10 w-10 md:h-12 md:w-12 rounded-full bg-black/55 hover:bg-red-600 backdrop-blur-md border border-white/20 flex items-center justify-center text-white shadow-xl transition-all"
+            >
+              <ChevronRight className="h-5 w-5 md:h-6 md:w-6" />
+            </button>
+
+            {/* Top-right controls: Counter + Play/Pause */}
+            <div className="absolute top-3 right-3 z-20 flex items-center gap-2">
+              <button
+                onClick={() => setPlaying(p => !p)}
+                aria-label={playing ? 'Pause slideshow' : 'Play slideshow'}
+                className="h-8 w-8 rounded-full bg-black/60 backdrop-blur-md border border-white/20 text-white flex items-center justify-center hover:bg-red-600 transition-all"
+              >
+                {playing ? <Pause className="h-3.5 w-3.5" /> : <Play className="h-3.5 w-3.5" />}
+              </button>
+              <div className="h-8 px-3 rounded-full bg-black/60 backdrop-blur-md border border-white/20 text-white text-xs flex items-center font-bold">
+                <Camera className="h-3 w-3 mr-1.5" /> {idx + 1} / {total}
+              </div>
+            </div>
+
+            {/* Dot indicators (animated progress) */}
+            <div className="absolute bottom-2 left-1/2 -translate-x-1/2 z-20 flex gap-1.5">
+              {images.map((_, i) => (
+                <button
+                  key={i}
+                  onClick={() => setIdx(i)}
+                  aria-label={`Go to image ${i + 1}`}
+                  className={`h-1.5 rounded-full transition-all ${i === idx ? 'w-8 bg-red-500 shadow-lg shadow-red-500/50' : 'w-1.5 bg-white/60 hover:bg-white/90'}`}
+                />
+              ))}
+            </div>
+          </>
+        )}
+      </div>
+
+      {/* Thumbnails Strip */}
+      {total > 1 && (
+        <div className="bg-zinc-900/95 border-t border-zinc-800 px-3 py-2.5 overflow-x-auto">
+          <div className="flex gap-2 min-w-max items-center">
+            {images.map((src, i) => (
+              <button
+                key={i}
+                onClick={() => setIdx(i)}
+                aria-label={`Show image ${i + 1}`}
+                className={`relative h-14 w-20 md:h-16 md:w-24 rounded-md overflow-hidden flex-shrink-0 transition-all duration-200 ${i === idx ? 'ring-2 ring-red-500 scale-105 shadow-lg shadow-red-500/30' : 'opacity-55 hover:opacity-100 ring-1 ring-zinc-700'}`}
+              >
+                <img src={src} alt={`thumbnail ${i + 1}`} className="w-full h-full object-cover" loading="lazy" />
+                {i === idx && <div className="absolute inset-0 ring-2 ring-red-500 ring-inset rounded-md" />}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+
 const ArticleView = ({ news, onBack, onState }) => {
   const [ads, setAds] = useState([])
   const [reporter, setReporter] = useState(null)
@@ -549,19 +726,29 @@ const ArticleView = ({ news, onBack, onState }) => {
     if (!articleRef.current) return
     setGenerating(true)
     try {
-      const html2pdf = (await import('html2pdf.js')).default
+      // Load html2pdf.js from CDN (more reliable than dynamic ESM import)
+      if (!window.html2pdf) {
+        await new Promise((resolve, reject) => {
+          const s = document.createElement('script')
+          s.src = 'https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js'
+          s.onload = resolve
+          s.onerror = () => reject(new Error('Could not load PDF library'))
+          document.head.appendChild(s)
+        })
+      }
       const opt = {
-        margin: 0,
+        margin: 5,
         filename: `news-${(news.slug || news.id).slice(0, 50)}.pdf`,
-        image: { type: 'jpeg', quality: 0.95 },
-        html2canvas: { scale: 2, useCORS: true, backgroundColor: '#0a0a0a', allowTaint: true },
+        image: { type: 'jpeg', quality: 0.92 },
+        html2canvas: { scale: 2, useCORS: true, backgroundColor: '#0a0a0a', allowTaint: true, logging: false },
         jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' },
         pagebreak: { mode: ['avoid-all', 'css', 'legacy'] }
       }
-      await html2pdf().set(opt).from(articleRef.current).save()
+      await window.html2pdf().set(opt).from(articleRef.current).save()
       toast.success('PDF downloaded!')
     } catch (e) {
-      toast.error('PDF failed: ' + e.message)
+      toast.error('PDF failed: ' + (e.message || 'unknown'))
+      console.error(e)
     }
     setGenerating(false)
   }
@@ -585,21 +772,22 @@ const ArticleView = ({ news, onBack, onState }) => {
         </div>
       </div>
       <article ref={articleRef} className="bg-zinc-950 border border-zinc-800 rounded-2xl overflow-hidden shadow-2xl">
-        {(news.thumbnail || news.images?.[0]) && (
-          <div className="relative h-72 md:h-[28rem]">
-            <img src={news.thumbnail || news.images[0]} alt={news.headline} className="w-full h-full object-cover" crossOrigin="anonymous" />
-            <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/30 to-transparent" />
-            <div className="absolute bottom-0 p-6 md:p-8 space-y-3">
-              <div className="flex flex-wrap gap-2">
-                <Badge className="bg-red-600 capitalize">{news.category}</Badge>
-                <Badge variant="outline" className="text-white border-white/30 backdrop-blur-sm cursor-pointer hover:bg-red-700/40" onClick={(e) => { e.stopPropagation(); onState?.(news.state) }}>
-                  <MapPin className="h-3 w-3 mr-1" /> {news.state} › {news.district}
-                </Badge>
-              </div>
-              <h1 className="text-2xl md:text-4xl font-black text-white leading-tight">{news.headline}</h1>
-            </div>
-          </div>
-        )}
+        {(() => {
+          // Merge thumbnail (if not duplicate) with images list; cap at 5
+          const allImgs = [...new Set([news.thumbnail, ...(news.images || [])].filter(Boolean))].slice(0, 5)
+          if (allImgs.length === 0) return null
+          return (
+            <ImageCarousel
+              images={allImgs}
+              headline={news.headline}
+              category={news.category}
+              state={news.state}
+              district={news.district}
+              onState={onState}
+              pdfMode={generating}
+            />
+          )
+        })()}
         <div className="p-6 md:p-8 space-y-6">
           <div className="flex items-center justify-between border-b border-zinc-800 pb-4 flex-wrap gap-3">
             <div className="flex items-center gap-3">
@@ -705,6 +893,7 @@ const JoinForm = ({ onLogin, onNav }) => {
   const [form, setForm] = useState({
     name: '', email: '', password: '', mobile: '', referralCode: '',
     aadhaar: '', pan: '', address: '', bio: '', experience: '',
+    aadhaarFront: '', aadhaarBack: '',
     profilePhoto: '', coverBanner: '',
     socialFacebook: '', socialTwitter: '', socialInstagram: '', socialYoutube: ''
   })
@@ -757,10 +946,17 @@ const JoinForm = ({ onLogin, onNav }) => {
 
   const submit = async () => {
     if (!form.name || !form.email || !form.password) { toast.error('Name, email, password required'); return }
+    if (!form.mobile || form.mobile.length < 10) { toast.error('Valid mobile number required'); return }
+    if (!form.aadhaar || form.aadhaar.replace(/\D/g, '').length !== 12) { toast.error('Valid 12-digit Aadhaar number required'); return }
+    if (!form.aadhaarFront || !form.aadhaarBack) { toast.error('Aadhaar Front & Back photos are mandatory'); return }
     setLoading(true)
     const payload = {
       ...form, role: 'reporter',
-      state: location.state, district: location.district || location.city, city: location.city,
+      state: location.state,
+      district: location.district || location.city,
+      city: location.village || location.city,
+      pincode: location.pincode,
+      village: location.village,
       appliedPostId: selectedPost?.id, appliedPostName: selectedPost?.name,
       joiningType: joinType
     }
@@ -855,26 +1051,14 @@ const JoinForm = ({ onLogin, onNav }) => {
           {step === 1 && (
             <>
               <p className="text-sm text-zinc-400 mb-1">Select location for <span className="text-red-400 capitalize font-bold">{joinType} level</span> joining:</p>
-              <Select value={location.state} onValueChange={v => setLocation({ state: v, district: '', city: '' })}>
-                <SelectTrigger className="bg-zinc-900 border-zinc-800 text-white"><SelectValue placeholder="Select State *" /></SelectTrigger>
-                <SelectContent className="bg-zinc-950 border-zinc-800 text-white">
-                  {states.map(s => <SelectItem key={s.name} value={s.name}>{s.name}</SelectItem>)}
-                </SelectContent>
-              </Select>
-              {(joinType === 'district' || joinType === 'city') && location.state && (
-                <Select value={location.district} onValueChange={v => setLocation({ ...location, district: v, city: '' })}>
-                  <SelectTrigger className="bg-zinc-900 border-zinc-800 text-white"><SelectValue placeholder="Select District *" /></SelectTrigger>
-                  <SelectContent className="bg-zinc-950 border-zinc-800 text-white">
-                    {districts.map(d => <SelectItem key={d} value={d}>{d}</SelectItem>)}
-                  </SelectContent>
-                </Select>
-              )}
-              {joinType === 'city' && location.district && (
-                <Input placeholder="City Name *" value={location.city} onChange={e => setLocation({ ...location, city: e.target.value })} className="bg-zinc-900 border-zinc-800 text-white" />
-              )}
+              <IndiaLocationPicker
+                value={location}
+                onChange={setLocation}
+                requireVillage={joinType === 'city'}
+              />
               <div className="flex gap-2">
                 <Button onClick={() => setStep(0)} variant="outline" className="flex-1 border-zinc-800 bg-zinc-900 text-white">← Back</Button>
-                <Button onClick={() => setStep(2)} disabled={!location.state || (joinType !== 'state' && !location.district) || (joinType === 'city' && !location.city)} className="flex-1 bg-red-600 hover:bg-red-700">View Available Posts →</Button>
+                <Button onClick={() => setStep(2)} disabled={!location.state || (joinType !== 'state' && !location.district) || (joinType === 'city' && !(location.city || location.village))} className="flex-1 bg-red-600 hover:bg-red-700">View Available Posts →</Button>
               </div>
             </>
           )}
@@ -950,8 +1134,53 @@ const JoinForm = ({ onLogin, onNav }) => {
               <Input type="password" placeholder="Password *" value={form.password} onChange={e => setForm({ ...form, password: e.target.value })} className="bg-zinc-900 border-zinc-800 text-white" />
               <Input placeholder="Mobile Number *" value={form.mobile} onChange={e => setForm({ ...form, mobile: e.target.value })} className="bg-zinc-900 border-zinc-800 text-white" />
               <div className="grid grid-cols-2 gap-2">
-                <Input placeholder="Aadhaar" value={form.aadhaar} onChange={e => setForm({ ...form, aadhaar: e.target.value })} className="bg-zinc-900 border-zinc-800 text-white" />
+                <Input placeholder="Aadhaar Number * (12 digits)" value={form.aadhaar} maxLength={12} onChange={e => setForm({ ...form, aadhaar: e.target.value.replace(/\D/g, '').slice(0, 12) })} className="bg-zinc-900 border-zinc-800 text-white font-mono" />
                 <Input placeholder="PAN" value={form.pan} onChange={e => setForm({ ...form, pan: e.target.value.toUpperCase() })} className="bg-zinc-900 border-zinc-800 text-white font-mono" />
+              </div>
+
+              {/* AADHAAR CARD PHOTOS — MANDATORY */}
+              <div className="bg-red-950/20 border border-red-900/50 rounded-lg p-3 space-y-2">
+                <p className="text-xs font-bold text-red-300 flex items-center gap-1.5">
+                  <IdCard className="h-3.5 w-3.5" /> Aadhaar Card Photos <span className="text-red-500">*</span>
+                  <span className="text-[10px] text-zinc-400 font-normal">(both sides mandatory)</span>
+                </p>
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <p className="text-[11px] text-zinc-400 mb-1">Front Side *</p>
+                    <input type="file" accept="image/*" id="aadhaarFront" onChange={e => handleImg(e, 'aadhaarFront')} className="hidden" />
+                    <label htmlFor="aadhaarFront" className="block cursor-pointer">
+                      <div className="w-full aspect-[16/10] bg-zinc-900 border-2 border-dashed border-red-900/50 hover:border-red-500 rounded-lg flex items-center justify-center overflow-hidden transition-colors">
+                        {form.aadhaarFront ? (
+                          <img src={form.aadhaarFront} alt="Aadhaar Front" className="w-full h-full object-cover" />
+                        ) : (
+                          <div className="flex flex-col items-center text-zinc-500">
+                            <IdCard className="h-7 w-7 mb-1" />
+                            <span className="text-[10px]">Upload Front</span>
+                          </div>
+                        )}
+                      </div>
+                    </label>
+                  </div>
+                  <div>
+                    <p className="text-[11px] text-zinc-400 mb-1">Back Side *</p>
+                    <input type="file" accept="image/*" id="aadhaarBack" onChange={e => handleImg(e, 'aadhaarBack')} className="hidden" />
+                    <label htmlFor="aadhaarBack" className="block cursor-pointer">
+                      <div className="w-full aspect-[16/10] bg-zinc-900 border-2 border-dashed border-red-900/50 hover:border-red-500 rounded-lg flex items-center justify-center overflow-hidden transition-colors">
+                        {form.aadhaarBack ? (
+                          <img src={form.aadhaarBack} alt="Aadhaar Back" className="w-full h-full object-cover" />
+                        ) : (
+                          <div className="flex flex-col items-center text-zinc-500">
+                            <IdCard className="h-7 w-7 mb-1" />
+                            <span className="text-[10px]">Upload Back</span>
+                          </div>
+                        )}
+                      </div>
+                    </label>
+                  </div>
+                </div>
+                <p className="text-[10px] text-zinc-500 flex items-center gap-1">
+                  <Shield className="h-3 w-3 text-green-500" /> Your documents are encrypted and used only for verification.
+                </p>
               </div>
               <Textarea placeholder="Address" value={form.address} onChange={e => setForm({ ...form, address: e.target.value })} className="bg-zinc-900 border-zinc-800 text-white" rows={2} />
               <div className="grid grid-cols-2 gap-2">
@@ -2470,6 +2699,27 @@ const App = () => {
           <p className="text-zinc-600 text-xs">India's biggest crime news network • AI-Powered Journalism</p>
         </div>
       </footer>
+
+      {/* JOIN-NOW CTA — placed BELOW the footer (desktop only; mobile already has it in bottom nav) */}
+      {!user && (
+        <section className="hidden md:block bg-gradient-to-r from-red-700 via-red-600 to-red-700 border-t border-red-900/60">
+          <div className="max-w-7xl mx-auto px-4 py-5 flex flex-col md:flex-row items-center justify-between gap-3">
+            <div className="text-center md:text-left">
+              <p className="text-white font-black text-lg md:text-xl flex items-center gap-2 justify-center md:justify-start">
+                <Megaphone className="h-5 w-5" /> Become a Crime Reporter Today
+              </p>
+              <p className="text-red-100 text-xs md:text-sm">India's biggest crime news network — earn, report &amp; make impact.</p>
+            </div>
+            <Button
+              onClick={() => handleNav('join')}
+              size="lg"
+              className="bg-black hover:bg-zinc-900 text-white font-bold px-6 shadow-2xl shadow-black/50 border border-white/20"
+            >
+              <UserPlus className="h-5 w-5 mr-2" /> Join Now — Apply for a Post
+            </Button>
+          </div>
+        </section>
+      )}
     </div>
   )
 }

@@ -28,9 +28,11 @@ async function handler(request, { params }) {
     if (path === 'auth/register' && method === 'POST') {
       const body = await request.json();
       const {
-        email, password, name, mobile, state, district, role = 'reporter',
+        email, password, name, mobile, state, district, city, pincode, village, role = 'reporter',
         referralCode: referredByCode,
         aadhaar, pan, address, bio, experience, profilePhoto, coverBanner,
+        aadhaarFront, aadhaarBack,
+        appliedPostId, appliedPostName, joiningType,
         socialFacebook, socialTwitter, socialInstagram, socialYoutube
       } = body;
       if (!email || !password || !name) return json({ error: 'Missing fields' }, 400);
@@ -45,16 +47,24 @@ async function handler(request, { params }) {
 
       const id = uuid();
       const user = {
-        id, email, name, mobile, state, district, role,
+        id, email, name, mobile,
+        state, district, city: city || '', pincode: pincode || '', village: village || '',
+        role,
         password: await hashPassword(password),
         designation: role === 'reporter' ? 'Reporter' : 'User',
         photo: profilePhoto || `https://api.dicebear.com/7.x/initials/svg?seed=${encodeURIComponent(name)}`,
         coverBanner: coverBanner || '',
         aadhaar: aadhaar || '',
+        aadhaarFront: aadhaarFront || '',
+        aadhaarBack: aadhaarBack || '',
         pan: pan || '',
         address: address || '',
         bio: bio || '',
         experience: experience || '',
+        appliedPostId: appliedPostId || null,
+        appliedPostName: appliedPostName || '',
+        joiningType: joiningType || '',
+        kycVerified: false,
         social: {
           facebook: socialFacebook || '',
           twitter: socialTwitter || '',
@@ -443,7 +453,7 @@ async function handler(request, { params }) {
       if (!state || !district) return json({ reporters: [], canApply: true });
       const reporters = await db.collection('users').find(
         { state, district, role: 'reporter' },
-        { projection: { password: 0, _id: 0, aadhaar: 0, pan: 0, address: 0 } }
+        { projection: { password: 0, _id: 0, aadhaar: 0, pan: 0, address: 0, aadhaarFront: 0, aadhaarBack: 0 } }
       ).limit(10).toArray();
       // attach news counts
       const enriched = await Promise.all(reporters.map(async (r) => ({
@@ -458,7 +468,7 @@ async function handler(request, { params }) {
       const idOrCode = path.split('/')[1];
       const user = await db.collection('users').findOne(
         { $or: [{ id: idOrCode }, { referralCode: idOrCode }] },
-        { projection: { password: 0, _id: 0, aadhaar: 0, pan: 0 } }
+        { projection: { password: 0, _id: 0, aadhaar: 0, pan: 0, aadhaarFront: 0, aadhaarBack: 0 } }
       );
       if (!user) return json({ error: 'Not found' }, 404);
       const news = await db.collection('news').find(
@@ -658,7 +668,7 @@ async function handler(request, { params }) {
           appliedPostId: id,
           applicationStatus: 'approved'
         },
-        { projection: { password: 0, _id: 0, aadhaar: 0, pan: 0, address: 0 } }
+        { projection: { password: 0, _id: 0, aadhaar: 0, pan: 0, address: 0, aadhaarFront: 0, aadhaarBack: 0 } }
       ).toArray();
       const availableSeats = Math.max(0, (p.totalVacancy || 0) - members.length);
       return json({ post: p, members, availableSeats, totalFilled: members.length });
