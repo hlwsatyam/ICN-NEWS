@@ -39,6 +39,86 @@ const fmtTime = (d) => {
   return new Date(d).toLocaleDateString('en-IN')
 }
 
+const fmtRemaining = (until) => {
+  if (!until) return ''
+  const diff = new Date(until).getTime() - Date.now()
+  if (diff <= 0) return 'Expired'
+  const h = Math.floor(diff / 3600000)
+  const m = Math.floor((diff % 3600000) / 60000)
+  return h > 0 ? `${h}h ${m}m left` : `${m}m left`
+}
+
+// Pay ₹499 to feature a news on homepage Top 10 for 24h
+const featureNewsPayment = async (token, news, onSuccess) => {
+  if (!news?.id) { toast.error('News not selected'); return }
+  // 1. Pre-check slots
+  const status = await fetch(`${API}/featured`).then(r => r.json()).catch(() => ({}))
+  if (status?.full) { toast.error('All 10 featured slots are full. Try again later.'); return }
+
+  // 2. Create order
+  const order = await fetch(`${API}/featured/order`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ newsId: news.id })
+  }).then(r => r.json())
+
+  if (order.error) {
+    // Demo fallback when Razorpay isn't configured (dev only)
+    if ((order.error || '').toLowerCase().includes('razorpay not configured')) {
+      const conf = window.confirm('Razorpay not configured. Activate featuring in DEMO mode (no payment)?')
+      if (!conf) return
+      const act = await fetch(`${API}/featured/activate`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ newsId: news.id, demo: true })
+      }).then(r => r.json())
+      if (act.ok) { toast.success('Featured for 24 hours! (demo)'); onSuccess?.() }
+      else toast.error(act.error || 'Activation failed')
+      return
+    }
+    toast.error(order.error)
+    return
+  }
+
+  // 3. Open Razorpay checkout
+  const openRzp = () => {
+    const rzp = new window.Razorpay({
+      key: order.keyId,
+      amount: order.amount,
+      currency: 'INR',
+      name: 'Indian Crime News',
+      description: `Feature "${(news.headline || '').slice(0, 40)}" for 24h`,
+      order_id: order.orderId,
+      handler: async (response) => {
+        const verify = await fetch(`${API}/featured/activate`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+          body: JSON.stringify({
+            razorpay_order_id: response.razorpay_order_id,
+            razorpay_payment_id: response.razorpay_payment_id,
+            razorpay_signature: response.razorpay_signature,
+            newsId: news.id
+          })
+        }).then(r => r.json())
+        if (verify.ok) { toast.success('🌟 News featured for 24 hours!'); onSuccess?.() }
+        else toast.error(verify.error || 'Activation failed')
+      },
+      theme: { color: '#dc2626' }
+    })
+    rzp.open()
+  }
+
+  if (typeof window.Razorpay === 'undefined') {
+    const s = document.createElement('script')
+    s.src = 'https://checkout.razorpay.com/v1/checkout.js'
+    s.onload = openRzp
+    s.onerror = () => toast.error('Could not load payment SDK')
+    document.head.appendChild(s)
+  } else {
+    openRzp()
+  }
+}
+
 // ============ LOGO ============
 const Logo = ({ size = 'md' }) => {
   const s = size === 'lg' ? 'h-12 w-12 text-2xl' : 'h-10 w-10 text-xl'
@@ -433,11 +513,24 @@ const HomeFeed = ({ onArticle, onState }) => {
   const [categories, setCategories] = useState([])
   const [states, setStates] = useState([])
   const [search, setSearch] = useState('')
+  const [featured, setFeatured] = useState([])
+  const [featuredStatus, setFeaturedStatus] = useState({ slotsUsed: 0, slotsTotal: 10 })
 
   useEffect(() => {
     fetch(`${API}/categories`).then(r => r.json()).then(d => setCategories(d.categories || []))
     fetch(`${API}/states`).then(r => r.json()).then(d => setStates(d.states || []))
+    loadFeatured()
+    // Refresh featured every 60s so expired ones drop off
+    const t = setInterval(loadFeatured, 60000)
+    return () => clearInterval(t)
   }, [])
+
+  const loadFeatured = () => {
+    fetch(`${API}/featured`).then(r => r.json()).then(d => {
+      setFeatured(d.featured || [])
+      setFeaturedStatus({ slotsUsed: d.slotsUsed || 0, slotsTotal: d.slotsTotal || 10, slotsAvailable: d.slotsAvailable, full: d.full })
+    }).catch(() => {})
+  }
 
   const loadNews = async (p = 1, reset = false) => {
     setLoading(true)
@@ -483,6 +576,58 @@ const HomeFeed = ({ onArticle, onState }) => {
           </SelectContent>
         </Select>
       </div>
+
+      {/* TOP 10 FEATURED — Paid premium slots (24h) */}
+      {featured.length > 0 && (
+        <div className="mb-8">
+          <div className="flex items-center justify-between mb-3">
+            <h2 className="text-xl md:text-2xl font-black text-white flex items-center gap-2">
+              <Star className="h-5 w-5 md:h-6 md:w-6 text-yellow-400 fill-yellow-400" />
+              Top 10 Featured News
+              <Badge className="bg-yellow-600 text-black text-[10px] font-bold ml-1">PREMIUM</Badge>
+            </h2>
+            <span className="text-[11px] text-zinc-500">{featured.length}/{featuredStatus.slotsTotal} slots • 24h promo</span>
+          </div>
+          <div className="-mx-4 px-4 overflow-x-auto">
+            <div className="flex gap-3 pb-2 min-w-min snap-x snap-mandatory">
+              {featured.map(n => (
+                <motion.div
+                  key={n.id}
+                  initial={{ opacity: 0, y: 8 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  onClick={() => onArticle(n)}
+                  className="snap-start cursor-pointer flex-shrink-0 w-[260px] md:w-[300px] bg-gradient-to-br from-yellow-950/40 via-zinc-950 to-zinc-950 border border-yellow-700/40 hover:border-yellow-500 rounded-xl overflow-hidden shadow-xl hover:shadow-yellow-900/40 transition-all hover:-translate-y-1 group"
+                >
+                  <div className="relative h-36 md:h-40 overflow-hidden">
+                    {(n.thumbnail || n.images?.[0]) ? (
+                      <img src={n.thumbnail || n.images?.[0]} alt={n.headline} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" loading="lazy" />
+                    ) : (
+                      <div className="w-full h-full bg-zinc-900 flex items-center justify-center"><Newspaper className="h-10 w-10 text-zinc-700" /></div>
+                    )}
+                    <div className="absolute top-2 left-2 flex items-center gap-1">
+                      <Badge className="bg-yellow-500 text-black font-black text-[10px] shadow-lg flex items-center gap-0.5">
+                        <Star className="h-2.5 w-2.5 fill-black" /> FEATURED
+                      </Badge>
+                    </div>
+                    <div className="absolute top-2 right-2">
+                      <Badge className="bg-black/70 backdrop-blur-md text-white text-[10px] capitalize border border-white/20">{n.category}</Badge>
+                    </div>
+                    <div className="absolute inset-0 bg-gradient-to-t from-black/85 via-black/20 to-transparent" />
+                    <div className="absolute bottom-1.5 left-2.5 right-2.5 text-[10px] text-yellow-200/90 flex items-center justify-between">
+                      <span className="flex items-center gap-1"><MapPin className="h-2.5 w-2.5" /> {n.state}</span>
+                      <span className="flex items-center gap-1"><Eye className="h-2.5 w-2.5" /> {(n.views || 0).toLocaleString()}</span>
+                    </div>
+                  </div>
+                  <div className="p-3">
+                    <h3 className="text-sm font-bold text-white line-clamp-2 leading-snug group-hover:text-yellow-300 transition-colors">{n.headline}</h3>
+                    <p className="text-[11px] text-zinc-500 mt-1.5">{fmtTime(n.createdAt)}</p>
+                  </div>
+                </motion.div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Section Title */}
       <div className="flex items-center justify-between mb-4">
@@ -1750,23 +1895,51 @@ const Dashboard = ({ user, token }) => {
 
       {/* My News */}
       <div>
-        <h3 className="text-xl font-black text-white mb-3">My News Articles</h3>
+        <div className="flex items-center justify-between mb-3">
+          <h3 className="text-xl font-black text-white">My News Articles</h3>
+          <Badge className="bg-yellow-600/90 text-black text-[10px] flex items-center gap-1">
+            <Star className="h-3 w-3 fill-black" /> Feature any news for ₹499 (24h)
+          </Badge>
+        </div>
         <div className="space-y-2">
           {myNews.length === 0 && <p className="text-zinc-500 text-sm">No news published yet. Click "Publish News" to start.</p>}
-          {myNews.map(n => (
-            <Card key={n.id} className="bg-zinc-950 border-zinc-800">
-              <CardContent className="p-3 flex items-center gap-3">
-                {n.images?.[0] && <img src={n.images[0]} className="h-14 w-20 object-cover rounded" />}
-                <div className="flex-1 min-w-0">
-                  <p className="text-white font-semibold text-sm line-clamp-1">{n.headline}</p>
-                  <p className="text-xs text-zinc-500">{n.state} • {fmtTime(n.createdAt)} • {(n.views||0).toLocaleString()} views</p>
-                </div>
-                <Badge className={n.status === 'approved' ? 'bg-green-700' : n.status === 'pending' ? 'bg-yellow-700' : 'bg-red-700'}>
-                  {n.status}
-                </Badge>
-              </CardContent>
-            </Card>
-          ))}
+          {myNews.map(n => {
+            const featuredActive = n.isFeatured && n.featuredUntil && new Date(n.featuredUntil) > new Date()
+            return (
+              <Card key={n.id} className={`bg-zinc-950 ${featuredActive ? 'border-yellow-600/60 shadow-lg shadow-yellow-900/20' : 'border-zinc-800'}`}>
+                <CardContent className="p-3 flex items-center gap-3 flex-wrap">
+                  {n.images?.[0] && <img src={n.images[0]} className="h-14 w-20 object-cover rounded" />}
+                  <div className="flex-1 min-w-0">
+                    <p className="text-white font-semibold text-sm line-clamp-1 flex items-center gap-1.5">
+                      {featuredActive && <Star className="h-3 w-3 text-yellow-400 fill-yellow-400 flex-shrink-0" />}
+                      {n.headline}
+                    </p>
+                    <p className="text-xs text-zinc-500">
+                      {n.state} • {fmtTime(n.createdAt)} • {(n.views || 0).toLocaleString()} views
+                      {featuredActive && <span className="ml-2 text-yellow-400 font-semibold">• Featured • {fmtRemaining(n.featuredUntil)}</span>}
+                    </p>
+                  </div>
+                  <Badge className={n.status === 'approved' ? 'bg-green-700' : n.status === 'pending' ? 'bg-yellow-700' : 'bg-red-700'}>
+                    {n.status}
+                  </Badge>
+                  {n.status === 'approved' && !featuredActive && (
+                    <Button
+                      size="sm"
+                      onClick={() => featureNewsPayment(token, n, loadData)}
+                      className="bg-gradient-to-r from-yellow-600 to-amber-600 hover:from-yellow-500 hover:to-amber-500 text-black font-bold text-xs h-8"
+                    >
+                      <Star className="h-3 w-3 mr-1 fill-black" /> Feature ₹499
+                    </Button>
+                  )}
+                  {featuredActive && (
+                    <Badge className="bg-yellow-500 text-black font-bold text-[10px] flex items-center gap-1">
+                      <Star className="h-3 w-3 fill-black" /> FEATURED
+                    </Badge>
+                  )}
+                </CardContent>
+              </Card>
+            )
+          })}
         </div>
       </div>
 
@@ -1849,7 +2022,24 @@ const NewsEditor = ({ token, user, onClose }) => {
       body: JSON.stringify(form)
     }).then(r => r.json())
     setSubmitting(false)
-    if (r.news) { toast.success(user.role === 'admin' ? 'Published!' : 'Submitted for review!'); onClose() }
+    if (r.news) {
+      toast.success(user.role === 'admin' ? 'Published!' : 'Submitted for review!')
+      // Offer to feature it (only when news is already approved — admin or auto-publish)
+      if (r.news.status === 'approved') {
+        const featStatus = await fetch(`${API}/featured`).then(r => r.json()).catch(() => ({}))
+        if (!featStatus?.full) {
+          setTimeout(() => {
+            if (window.confirm(`✨ Want to feature this news on the Top 10 Featured section for 24 hours?\n\nPay just ₹499 to boost visibility now.\n\n${featStatus?.slotsUsed || 0}/10 slots currently filled.`)) {
+              featureNewsPayment(token, r.news, onClose)
+              return
+            }
+            onClose()
+          }, 600)
+          return
+        }
+      }
+      onClose()
+    }
     else toast.error(r.error || 'Failed')
   }
 

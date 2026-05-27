@@ -133,6 +133,12 @@ async function handler(request, { params }) {
       if (category) q.category = category;
       if (reporterId) q.reporterId = reporterId;
       if (search) q.headline = { $regex: search, $options: 'i' };
+      // Lazy expire featured flags
+      const __now = new Date();
+      await db.collection('news').updateMany(
+        { isFeatured: true, featuredUntil: { $lte: __now } },
+        { $set: { isFeatured: false }, $unset: { featuredUntil: '' } }
+      );
       const total = await db.collection('news').countDocuments(q);
       const news = await db.collection('news')
         .find(q, { projection: { _id: 0 } })
@@ -300,6 +306,116 @@ async function handler(request, { params }) {
         totalViews: viewsAgg[0]?.total || 0,
         totalUsers, totalReporters
       });
+    }
+
+    // ============ FEATURED NEWS (Top 10 paid slots — ₹499 for 24h) ============
+    if (path === 'featured' && method === 'GET') {
+      const now = new Date();
+      // Lazy-expire: clear flags on expired featured news
+      await db.collection('news').updateMany(
+        { isFeatured: true, featuredUntil: { $lte: now } },
+        { $set: { isFeatured: false }, $unset: { featuredUntil: '' } }
+      );
+      const featured = await db.collection('news')
+        .find(
+          { isFeatured: true, featuredUntil: { $gt: now }, status: 'approved', hidden: { $ne: true } },
+          { projection: { _id: 0 } }
+        )
+        .sort({ featuredAt: -1 })
+        .limit(10)
+        .toArray();
+      const slotsTotal = 10;
+      const slotsUsed = featured.length;
+      return json({
+        featured,
+        slotsTotal,
+        slotsUsed,
+        slotsAvailable: Math.max(0, slotsTotal - slotsUsed),
+        full: slotsUsed >= slotsTotal,
+        fee: 499,
+        durationHours: 24
+      });
+    }
+
+    if (path === 'featured/order' && method === 'POST') {
+      const auth = getAuthUser(request);
+      if (!auth) return json({ error: 'Unauthorized' }, 401);
+      const { newsId } = await request.json();
+      if (!newsId) return json({ error: 'newsId required' }, 400);
+      const news = await db.collection('news').findOne({ id: newsId });
+      if (!news) return json({ error: 'News not found' }, 404);
+      if (news.reporterId !== auth.id && auth.role !== 'admin') return json({ error: 'Not your news' }, 403);
+      if (news.status !== 'approved') return json({ error: 'Only approved news can be featured' }, 400);
+      // Already featured?
+      if (news.isFeatured && news.featuredUntil && new Date(news.featuredUntil) > new Date()) {
+        return json({ error: 'Already featured', featuredUntil: news.featuredUntil }, 400);
+      }
+      // Auto-expire stale records first
+      const now = new Date();
+      await db.collection('news').updateMany(
+        { isFeatured: true, featuredUntil: { $lte: now } },
+        { $set: { isFeatured: false }, $unset: { featuredUntil: '' } }
+      );
+      const activeCount = await db.collection('news').countDocuments({ isFeatured: true, featuredUntil: { $gt: now } });
+      if (activeCount >= 10) return json({ error: 'All 10 featured slots are full. Please try later.', slotsAvailable: 0 }, 400);
+      try {
+        const rzp = new Razorpay({
+          key_id: process.env.RAZORPAY_KEY_ID,
+          key_secret: process.env.RAZORPAY_KEY_SECRET
+        });
+        const order = await rzp.orders.create({
+          amount: 499 * 100,
+          currency: 'INR',
+          receipt: `feat_${Date.now()}`,
+          notes: { newsId, userId: auth.id, type: 'featured-news' }
+        });
+        return json({ orderId: order.id, amount: order.amount, keyId: process.env.RAZORPAY_KEY_ID, slotsAvailable: 10 - activeCount });
+      } catch (e) {
+        return json({ error: 'Razorpay not configured', detail: e.message }, 500);
+      }
+    }
+
+    if (path === 'featured/activate' && method === 'POST') {
+      const auth = getAuthUser(request);
+      if (!auth) return json({ error: 'Unauthorized' }, 401);
+      const { razorpay_order_id, razorpay_payment_id, razorpay_signature, newsId, demo } = await request.json();
+      // DEMO mode: allow activation without signature when Razorpay isn't configured
+      const isDemoBypass = demo === true && !process.env.RAZORPAY_KEY_SECRET;
+      if (!isDemoBypass) {
+        if (!razorpay_order_id || !razorpay_payment_id || !razorpay_signature) {
+          return json({ error: 'Missing payment fields' }, 400);
+        }
+        const hmac = crypto.createHmac('sha256', process.env.RAZORPAY_KEY_SECRET || '');
+        hmac.update(`${razorpay_order_id}|${razorpay_payment_id}`);
+        const expected = hmac.digest('hex');
+        if (expected !== razorpay_signature) return json({ error: 'Invalid signature' }, 400);
+      }
+      const news = await db.collection('news').findOne({ id: newsId });
+      if (!news) return json({ error: 'News not found' }, 404);
+      if (news.reporterId !== auth.id && auth.role !== 'admin') return json({ error: 'Not your news' }, 403);
+      // Slot recheck (race condition guard)
+      const now = new Date();
+      const activeCount = await db.collection('news').countDocuments({ isFeatured: true, featuredUntil: { $gt: now } });
+      if (activeCount >= 10) return json({ error: 'All 10 slots filled while paying. Contact support for refund.' }, 400);
+
+      const featuredUntil = new Date(now.getTime() + 24 * 60 * 60 * 1000);
+      await db.collection('news').updateOne(
+        { id: newsId },
+        { $set: { isFeatured: true, featuredAt: now, featuredUntil, featuredPaymentId: razorpay_payment_id || ('demo_' + Date.now()) } }
+      );
+      await db.collection('payments').insertOne({
+        id: uuid(),
+        userId: auth.id,
+        newsId,
+        orderId: razorpay_order_id || null,
+        paymentId: razorpay_payment_id || ('demo_' + Date.now()),
+        amount: 499,
+        type: 'featured-news',
+        status: 'paid',
+        createdAt: now,
+        expiresAt: featuredUntil
+      });
+      return json({ ok: true, featuredUntil, message: 'News featured for 24 hours' });
     }
 
     // ============ PAYMENT (Razorpay) ============
