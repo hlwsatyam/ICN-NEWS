@@ -725,6 +725,93 @@ async function handler(request, { params }) {
     }
 
     // ============ JOB POSTS / RECRUITMENT ============
+
+    // Auto-seed STATE LEVEL appointment structure for ALL India states/UTs
+    if (path === 'admin/seed-state-posts' && method === 'POST') {
+      const auth = getAuthUser(request);
+      if (!auth || auth.role !== 'admin') return json({ error: 'Forbidden' }, 403);
+
+      // All 28 States + 8 Union Territories
+      const INDIA_STATES = [
+        'Andhra Pradesh', 'Arunachal Pradesh', 'Assam', 'Bihar', 'Chhattisgarh',
+        'Goa', 'Gujarat', 'Haryana', 'Himachal Pradesh', 'Jharkhand', 'Karnataka',
+        'Kerala', 'Madhya Pradesh', 'Maharashtra', 'Manipur', 'Meghalaya', 'Mizoram',
+        'Nagaland', 'Odisha', 'Punjab', 'Rajasthan', 'Sikkim', 'Tamil Nadu',
+        'Telangana', 'Tripura', 'Uttar Pradesh', 'Uttarakhand', 'West Bengal',
+        // UTs
+        'Andaman and Nicobar Islands', 'Chandigarh',
+        'Dadra and Nagar Haveli and Daman and Diu', 'Delhi', 'Jammu and Kashmir',
+        'Ladakh', 'Lakshadweep', 'Puducherry'
+      ];
+
+      // 10-post State Level appointment structure (43 vacancies per state)
+      const STATE_POSTS = [
+        { key: 'bureau-chief',    name: 'State Bureau Chief',            hindi: 'स्टेट ब्यूरो चीफ',           fee: 25000, vacancy: 1,  description: 'पूरे राज्य का प्रमुख एवं संचालन',                  responsibilities: ['राज्य-स्तरीय नेतृत्व', 'संचालन प्रबंधन', 'टीम मॉनिटरिंग'] },
+        { key: 'state-head',      name: 'State Head',                    hindi: 'स्टेट हेड / राज्य प्रमुख',   fee: 11000, vacancy: 4,  description: 'राज्य की पूरी जिम्मेदारी एवं प्रबंधन',                responsibilities: ['राज्य प्रबंधन', 'टीम जिम्मेदारी', 'प्रशासनिक कार्य'] },
+        { key: 'state-coord',     name: 'State Coordinator',             hindi: 'स्टेट कोऑर्डिनेटर',          fee: 7500,  vacancy: 4,  description: 'टीम मैनेजमेंट एवं रिपोर्टिंग समन्वय',                 responsibilities: ['टीम मैनेजमेंट', 'रिपोर्टिंग समन्वय', 'फील्ड संचालन'] },
+        { key: 'crime-reporter',  name: 'State Crime Reporter',          hindi: 'स्टेट क्राइम रिपोर्टर',      fee: 5100,  vacancy: 4,  description: 'राज्य की क्राइम खबरों की रिपोर्टिंग',                  responsibilities: ['क्राइम रिपोर्टिंग', 'घटना कवरेज', 'सोर्स नेटवर्क'] },
+        { key: 'investigation',   name: 'Media Investigation Officer',   hindi: 'स्टेट इन्वेस्टिगेशन ऑफिसर',  fee: 5100,  vacancy: 4,  description: 'जांच आधारित खबरें एवं विशेष रिपोर्टिंग',              responsibilities: ['जांच रिपोर्टिंग', 'स्पेशल कवरेज', 'डाटा एनालिसिस'] },
+        { key: 'media-manager',   name: 'State Media Manager',           hindi: 'स्टेट मीडिया मैनेजर',        fee: 4000,  vacancy: 4,  description: 'मीडिया संचालन एवं प्रमोशन प्रबंधन',                   responsibilities: ['मीडिया संचालन', 'प्रमोशन', 'विज्ञापन प्रबंधन'] },
+        { key: 'news-editor',     name: 'State News Editor',             hindi: 'स्टेट न्यूज़ एडिटर',          fee: 3500,  vacancy: 4,  description: 'समाचार जांच, एडिटिंग एवं प्रकाशन नियंत्रण',          responsibilities: ['एडिटिंग', 'प्रकाशन नियंत्रण', 'समाचार जांच'] },
+        { key: 'social-head',     name: 'State Social Media Head',       hindi: 'स्टेट सोशल मीडिया हेड',      fee: 2500,  vacancy: 4,  description: 'Facebook, YouTube, Instagram एवं डिजिटल प्लेटफॉर्म संचालन', responsibilities: ['सोशल मीडिया संचालन', 'डिजिटल मार्केटिंग', 'कंटेंट क्रिएशन'] },
+        { key: 'field-reporter',  name: 'State Field Reporter',          hindi: 'स्टेट फील्ड रिपोर्टर',        fee: 3500,  vacancy: 10, description: 'जिला एवं शहर स्तर पर ग्राउंड रिपोर्टिंग',              responsibilities: ['ग्राउंड रिपोर्टिंग', 'फील्ड कवरेज', 'जिला कनेक्ट'] },
+        { key: 'pro',             name: 'State Press Relation Officer',  hindi: 'स्टेट प्रेस रिलेशन ऑफिसर',   fee: 3500,  vacancy: 4,  description: 'सरकारी विभाग, प्रेस एवं जनसंपर्क प्रबंधन',            responsibilities: ['पीआर', 'सरकारी समन्वय', 'जनसंपर्क'] }
+      ];
+
+      const now = new Date();
+      let inserted = 0, updated = 0, skipped = 0;
+      const ops = [];
+
+      for (const stateName of INDIA_STATES) {
+        for (const template of STATE_POSTS) {
+          // Deterministic ID: idempotent re-runs
+          const id = `state-${stateName.toLowerCase().replace(/[^a-z]/g, '')}-${template.key}`;
+          const existing = await db.collection('posts').findOne({ id });
+          const post = {
+            id,
+            name: template.name,
+            nameHindi: template.hindi,
+            joiningFee: template.fee,
+            levelType: 'state',
+            state: stateName,
+            district: null,
+            city: null,
+            totalVacancy: template.vacancy,
+            description: template.description,
+            responsibilities: template.responsibilities,
+            status: 'open',
+            autoSeeded: true,
+            updatedAt: now
+          };
+          if (!existing) {
+            post.createdAt = now;
+            ops.push({ insertOne: { document: post } });
+            inserted++;
+          } else {
+            ops.push({ updateOne: { filter: { id }, update: { $set: post } } });
+            updated++;
+          }
+        }
+      }
+
+      if (ops.length > 0) {
+        await db.collection('posts').bulkWrite(ops, { ordered: false });
+      }
+
+      return json({
+        ok: true,
+        message: `Auto-seeded ${INDIA_STATES.length} states × 10 posts = ${INDIA_STATES.length * STATE_POSTS.length} total job templates (${INDIA_STATES.length * 43} total vacancies)`,
+        statesCount: INDIA_STATES.length,
+        postsPerState: STATE_POSTS.length,
+        vacanciesPerState: 43,
+        totalPosts: INDIA_STATES.length * STATE_POSTS.length,
+        totalVacancies: INDIA_STATES.length * 43,
+        inserted,
+        updated,
+        skipped
+      });
+    }
+
     if (path === 'posts' && method === 'GET') {
       const url = new URL(request.url);
       const status = url.searchParams.get('status') || 'open';

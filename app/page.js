@@ -2323,9 +2323,29 @@ const AdminPanel = ({ token, user }) => {
         </TabsContent>
 
         <TabsContent value="jobs" className="mt-4 space-y-3">
-          <div className="flex justify-between items-center">
+          <div className="flex justify-between items-center flex-wrap gap-2">
             <h3 className="text-white font-bold flex items-center gap-2"><Award className="h-4 w-4 text-yellow-500" /> Recruitment Posts</h3>
-            <Button onClick={() => setShowJobDialog(true)} size="sm" className="bg-red-600 hover:bg-red-700"><Plus className="h-4 w-4 mr-1" /> Create Post</Button>
+            <div className="flex gap-2 flex-wrap">
+              <Button
+                onClick={async () => {
+                  if (!window.confirm('Auto-seed STATE LEVEL vacancies for ALL 36 India States/UTs?\n\n• 10 posts × 36 states = 360 job templates\n• 43 vacancies per state (1548 total seats)\n• Re-running is safe (idempotent — updates existing).')) return
+                  const r = await fetch(`${API}/admin/seed-state-posts`, {
+                    method: 'POST',
+                    headers: { Authorization: `Bearer ${token}` }
+                  }).then(r => r.json())
+                  if (r.ok) {
+                    toast.success(`✅ ${r.message}`)
+                    load()
+                  } else toast.error(r.error || 'Seeding failed')
+                }}
+                size="sm"
+                variant="outline"
+                className="border-yellow-700 bg-yellow-950/30 text-yellow-300 hover:bg-yellow-900/40 hover:text-yellow-200"
+              >
+                <Building2 className="h-4 w-4 mr-1" /> Auto-Seed All 36 States (360 posts)
+              </Button>
+              <Button onClick={() => setShowJobDialog(true)} size="sm" className="bg-red-600 hover:bg-red-700"><Plus className="h-4 w-4 mr-1" /> Create Post</Button>
+            </div>
           </div>
           {posts.length === 0 && <p className="text-zinc-500 text-center py-8">No job posts. Click "Create Post" to add.</p>}
           {posts.map(p => (
