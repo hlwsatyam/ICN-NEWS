@@ -5,6 +5,7 @@ import { motion, AnimatePresence } from 'framer-motion'
 import RichEditor from '@/components/RichEditor'
 import IndiaLocationPicker from '@/components/IndiaLocation'
 import { PressIDCard, SocialMediaDP } from '@/components/ICNewsCards'
+import CommunitySections, { AdminSiteSettings } from '@/components/CommunitySections'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
@@ -673,6 +674,9 @@ const HomeFeed = ({ onArticle, onState }) => {
           </Button>
         </div>
       )}
+
+      {/* COMMUNITY SECTIONS: YouTube, Instagram, Help, Support, Contact */}
+      <CommunitySections />
     </div>
   )
 }
@@ -2295,6 +2299,7 @@ const AdminPanel = ({ token, user }) => {
           <TabsTrigger value="breaking" className="data-[state=active]:bg-red-600">Breaking</TabsTrigger>
           <TabsTrigger value="payouts" className="data-[state=active]:bg-red-600">Payouts ({payouts.filter(p => p.status === 'pending').length})</TabsTrigger>
           <TabsTrigger value="analytics" className="data-[state=active]:bg-red-600">Analytics</TabsTrigger>
+          <TabsTrigger value="site" className="data-[state=active]:bg-red-600">Site Settings</TabsTrigger>
         </TabsList>
 
         <TabsContent value="pending" className="space-y-3 mt-4">
@@ -2518,6 +2523,10 @@ const AdminPanel = ({ token, user }) => {
               ))}
             </div>
           )}
+        </TabsContent>
+
+        <TabsContent value="site" className="mt-4">
+          <AdminSiteSettings token={token} />
         </TabsContent>
       </Tabs>
 

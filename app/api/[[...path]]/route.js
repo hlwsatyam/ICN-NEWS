@@ -724,6 +724,81 @@ async function handler(request, { params }) {
       return json({ ok: true });
     }
 
+    // ============ SITE SETTINGS (YouTube, Insta, Support, Contact) ============
+    if (path === 'site-settings' && method === 'GET') {
+      let s = await db.collection('settings').findOne({ id: 'site' });
+      if (!s) {
+        // Seed defaults
+        s = {
+          id: 'site',
+          youtubeVideos: [
+            { id: 'dQw4w9WgXcQ', title: 'Sample Video 1' },
+            { id: 'jNQXAC9IVRw', title: 'Sample Video 2' },
+            { id: '9bZkp7q19f0', title: 'Sample Video 3' },
+            { id: 'kJQP7kiw5Fk', title: 'Sample Video 4' },
+            { id: 'L_jWHffIx5E', title: 'Sample Video 5' },
+            { id: 'fJ9rUzIMcZQ', title: 'Sample Video 6' }
+          ],
+          instagram: { url: 'https://instagram.com/icnewsmedia', handle: '@icnewsmedia', label: 'IC News Media' },
+          supportTeam: {
+            timeStart: '11:00 AM',
+            timeEnd: '6:00 PM',
+            members: [
+              { name: 'Support Lead', mobile: '+91 0000000000', role: 'Senior Support' },
+              { name: 'Support Officer', mobile: '+91 0000000001', role: 'Technical Help' }
+            ]
+          },
+          contact: {
+            address: 'FF-120, ADITYA COMPLEX, KASAK CIRCLE, BHARUCH - 392001, GUJARAT (INDIA)',
+            email: 'icnewsmediaofficial@gmail.com',
+            phones: ['+91 8485985700']
+          },
+          updatedAt: new Date()
+        };
+        await db.collection('settings').insertOne(s);
+      }
+      const { _id, ...rest } = s;
+      return json(rest);
+    }
+
+    if (path === 'site-settings' && method === 'PUT') {
+      const auth = getAuthUser(request);
+      if (!auth || auth.role !== 'admin') return json({ error: 'Forbidden' }, 403);
+      const body = await request.json();
+      const update = { ...body, id: 'site', updatedAt: new Date() };
+      delete update._id;
+      await db.collection('settings').updateOne(
+        { id: 'site' },
+        { $set: update },
+        { upsert: true }
+      );
+      return json({ ok: true });
+    }
+
+    // ============ HELP REQUESTS ============
+    if (path === 'help' && method === 'POST') {
+      const { name, contact, query, media } = await request.json();
+      if (!name || !contact || !query) return json({ error: 'Name, contact, and query are required' }, 400);
+      const helpReq = {
+        id: uuid(),
+        name,
+        contact,
+        query,
+        media: media || [], // array of base64 strings (photos/videos)
+        status: 'open',
+        createdAt: new Date()
+      };
+      await db.collection('help_requests').insertOne(helpReq);
+      return json({ ok: true, id: helpReq.id, message: 'आपका सन्देश हमें मिल गया है। हम जल्द ही संपर्क करेंगे।' });
+    }
+
+    if (path === 'help' && method === 'GET') {
+      const auth = getAuthUser(request);
+      if (!auth || auth.role !== 'admin') return json({ error: 'Forbidden' }, 403);
+      const all = await db.collection('help_requests').find({}, { projection: { _id: 0 } }).sort({ createdAt: -1 }).limit(200).toArray();
+      return json({ requests: all });
+    }
+
     // ============ JOB POSTS / RECRUITMENT ============
 
     // Auto-seed STATE LEVEL appointment structure for ALL India states/UTs
