@@ -4,6 +4,7 @@ import { useEffect, useState, useRef } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import RichEditor from '@/components/RichEditor'
 import IndiaLocationPicker from '@/components/IndiaLocation'
+import { PressIDCard, SocialMediaDP } from '@/components/ICNewsCards'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
@@ -1645,6 +1646,8 @@ const Dashboard = ({ user, token }) => {
   const [showPayout, setShowPayout] = useState(false)
   const [showAdCreator, setShowAdCreator] = useState(false)
   const [showSocial, setShowSocial] = useState(false)
+  const [showIdCard, setShowIdCard] = useState(false)
+  const [showDp, setShowDp] = useState(false)
   const [payouts, setPayouts] = useState([])
   const [myAds, setMyAds] = useState([])
   const [refData, setRefData] = useState({ referrals: [], totalEarned: 0, totalReferrals: 0, referralCode: user.referralCode, walletBalance: user.walletBalance || 0 })
@@ -1674,12 +1677,12 @@ const Dashboard = ({ user, token }) => {
   }
 
   const downloads = [
-    { name: 'Press ID Card', icon: IdCard, color: 'from-red-600 to-red-800', url: `${API}/pdf/idcard/${user.id}` },
-    { name: 'Joining Letter', icon: FileText, color: 'from-blue-600 to-blue-800', url: `${API}/pdf/certificate/${user.id}` },
-    { name: 'Certificate', icon: Award, color: 'from-yellow-600 to-yellow-800', url: `${API}/pdf/certificate/${user.id}` },
-    { name: 'Social Media DP', icon: ImageIcon, color: 'from-purple-600 to-purple-800', url: user.photo },
-    { name: 'Bike Sticker', icon: Bike, color: 'from-green-600 to-green-800', url: `${API}/pdf/certificate/${user.id}` },
-    { name: 'Press Sticker', icon: Shield, color: 'from-pink-600 to-pink-800', url: `${API}/pdf/idcard/${user.id}` }
+    { name: 'Press ID Card', icon: IdCard, color: 'from-red-600 to-red-800', onClick: () => setShowIdCard(true), info: 'Front + Back • PDF/PNG' },
+    { name: 'Social Media DP', icon: ImageIcon, color: 'from-purple-600 to-purple-800', onClick: () => setShowDp(true), info: 'Circular • PNG/PDF' },
+    { name: 'Joining Letter', icon: FileText, color: 'from-blue-600 to-blue-800', url: `${API}/pdf/certificate/${user.id}`, info: 'PDF' },
+    { name: 'Certificate', icon: Award, color: 'from-yellow-600 to-yellow-800', url: `${API}/pdf/certificate/${user.id}`, info: 'PDF' },
+    { name: 'Bike Sticker', icon: Bike, color: 'from-green-600 to-green-800', url: `${API}/pdf/certificate/${user.id}`, info: 'PDF' },
+    { name: 'Press Sticker', icon: Shield, color: 'from-pink-600 to-pink-800', onClick: () => setShowIdCard(true), info: 'Press Card' }
   ]
 
   return (
@@ -1883,13 +1886,24 @@ const Dashboard = ({ user, token }) => {
           <FileText className="h-5 w-5 text-red-500" /> Download Center
         </h3>
         <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
-          {downloads.map(d => (
-            <a key={d.name} href={d.url} target="_blank" rel="noopener noreferrer" className={`bg-gradient-to-br ${d.color} rounded-xl p-4 text-left hover:scale-105 transition-transform shadow-lg block`}>
-              <d.icon className="h-6 w-6 text-white mb-2" />
-              <p className="font-bold text-white text-sm">{d.name}</p>
-              <p className="text-xs text-white/70 flex items-center gap-1"><Download className="h-3 w-3" /> Download PDF</p>
-            </a>
-          ))}
+          {downloads.map(d => {
+            const inner = (
+              <>
+                <d.icon className="h-6 w-6 text-white mb-2" />
+                <p className="font-bold text-white text-sm">{d.name}</p>
+                <p className="text-xs text-white/70 flex items-center gap-1"><Download className="h-3 w-3" /> {d.info || 'Download'}</p>
+              </>
+            )
+            return d.onClick ? (
+              <button key={d.name} onClick={d.onClick} className={`bg-gradient-to-br ${d.color} rounded-xl p-4 text-left hover:scale-105 transition-transform shadow-lg block w-full`}>
+                {inner}
+              </button>
+            ) : (
+              <a key={d.name} href={d.url} target="_blank" rel="noopener noreferrer" className={`bg-gradient-to-br ${d.color} rounded-xl p-4 text-left hover:scale-105 transition-transform shadow-lg block`}>
+                {inner}
+              </a>
+            )
+          })}
         </div>
       </div>
 
@@ -1947,6 +1961,8 @@ const Dashboard = ({ user, token }) => {
       {showPayout && <PayoutDialog token={token} walletBalance={refData.walletBalance || 0} onClose={(refresh) => { setShowPayout(false); if (refresh) loadData() }} />}
       {showAdCreator && <AdCreatorDialog token={token} user={user} onClose={(refresh) => { setShowAdCreator(false); if (refresh) loadData() }} />}
       {showSocial && <SocialPostDialog token={token} onClose={(refresh) => { setShowSocial(false); if (refresh) loadData() }} />}
+      {showIdCard && <PressIDCard user={user} onClose={() => setShowIdCard(false)} />}
+      {showDp && <SocialMediaDP user={user} onClose={() => setShowDp(false)} />}
     </div>
   )
 }
