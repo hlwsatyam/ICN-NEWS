@@ -724,13 +724,16 @@ async function handler(request, { params }) {
       return json({ ok: true });
     }
 
-    // ============ SITE SETTINGS (YouTube, Insta, Support, Contact) ============
+    // ============ SITE SETTINGS (YouTube, Insta, Support, Contact, Logo) ============
     if (path === 'site-settings' && method === 'GET') {
       let s = await db.collection('settings').findOne({ id: 'site' });
       if (!s) {
         // Seed defaults
         s = {
           id: 'site',
+          siteName: 'Indian Crime News',
+          tagline: 'सच्चाई की आवाज़',
+          logo: '/branding/icn-logo.png',
           youtubeVideos: [
             { id: 'dQw4w9WgXcQ', title: 'Sample Video 1' },
             { id: 'jNQXAC9IVRw', title: 'Sample Video 2' },
@@ -756,6 +759,15 @@ async function handler(request, { params }) {
           updatedAt: new Date()
         };
         await db.collection('settings').insertOne(s);
+      } else if (!s.logo) {
+        // Backfill logo if upgrading from older seed
+        await db.collection('settings').updateOne(
+          { id: 'site' },
+          { $set: { logo: '/branding/icn-logo.png', siteName: s.siteName || 'Indian Crime News', tagline: s.tagline || 'सच्चाई की आवाज़' } }
+        );
+        s.logo = '/branding/icn-logo.png';
+        s.siteName = s.siteName || 'Indian Crime News';
+        s.tagline = s.tagline || 'सच्चाई की आवाज़';
       }
       const { _id, ...rest } = s;
       return json(rest);
@@ -797,6 +809,135 @@ async function handler(request, { params }) {
       if (!auth || auth.role !== 'admin') return json({ error: 'Forbidden' }, 403);
       const all = await db.collection('help_requests').find({}, { projection: { _id: 0 } }).sort({ createdAt: -1 }).limit(200).toArray();
       return json({ requests: all });
+    }
+
+    // ============ NEW UPDATES (Company announcements for reporters) ============
+    if (path === 'updates' && method === 'GET') {
+      const auth = getAuthUser(request);
+      if (!auth) return json({ error: 'Unauthorized' }, 401);
+      const updates = await db.collection('updates').find({ active: { $ne: false } }, { projection: { _id: 0 } }).sort({ createdAt: -1 }).limit(100).toArray();
+      return json({ updates });
+    }
+    if (path === 'admin/updates' && method === 'POST') {
+      const auth = getAuthUser(request);
+      if (!auth || auth.role !== 'admin') return json({ error: 'Forbidden' }, 403);
+      const { title, body: text, type = 'info', pinned = false } = await request.json();
+      if (!title) return json({ error: 'Title required' }, 400);
+      const update = { id: uuid(), title, body: text || '', type, pinned, active: true, createdAt: new Date(), createdBy: auth.id };
+      await db.collection('updates').insertOne(update);
+      delete update._id;
+      return json({ ok: true, update });
+    }
+    if (path.startsWith('admin/updates/') && method === 'DELETE') {
+      const auth = getAuthUser(request);
+      if (!auth || auth.role !== 'admin') return json({ error: 'Forbidden' }, 403);
+      const id = path.split('/')[2];
+      await db.collection('updates').deleteOne({ id });
+      return json({ ok: true });
+    }
+
+    // ============ FAQs ============
+    if (path === 'faqs' && method === 'GET') {
+      const faqs = await db.collection('faqs').find({ active: { $ne: false } }, { projection: { _id: 0 } }).sort({ order: 1, createdAt: 1 }).toArray();
+      return json({ faqs });
+    }
+    if (path === 'admin/faqs' && method === 'POST') {
+      const auth = getAuthUser(request);
+      if (!auth || auth.role !== 'admin') return json({ error: 'Forbidden' }, 403);
+      const { question, answer, order = 0 } = await request.json();
+      if (!question || !answer) return json({ error: 'Question and answer required' }, 400);
+      const faq = { id: uuid(), question, answer, order, active: true, createdAt: new Date() };
+      await db.collection('faqs').insertOne(faq);
+      delete faq._id;
+      return json({ ok: true, faq });
+    }
+    if (path.startsWith('admin/faqs/') && method === 'PUT') {
+      const auth = getAuthUser(request);
+      if (!auth || auth.role !== 'admin') return json({ error: 'Forbidden' }, 403);
+      const id = path.split('/')[2];
+      const body = await request.json();
+      delete body._id; delete body.id;
+      await db.collection('faqs').updateOne({ id }, { $set: { ...body, updatedAt: new Date() } });
+      return json({ ok: true });
+    }
+    if (path.startsWith('admin/faqs/') && method === 'DELETE') {
+      const auth = getAuthUser(request);
+      if (!auth || auth.role !== 'admin') return json({ error: 'Forbidden' }, 403);
+      const id = path.split('/')[2];
+      await db.collection('faqs').deleteOne({ id });
+      return json({ ok: true });
+    }
+
+    // ============ OPERATIONS / TASKS ============
+    // Admin assigns task to reporter, reporter submits reports
+    if (path === 'tasks/my' && method === 'GET') {
+      const auth = getAuthUser(request);
+      if (!auth) return json({ error: 'Unauthorized' }, 401);
+      const tasks = await db.collection('tasks').find({ assignedTo: auth.id }, { projection: { _id: 0 } }).sort({ createdAt: -1 }).toArray();
+      // Fetch reports for these tasks
+      const taskIds = tasks.map(t => t.id);
+      const reports = await db.collection('task_reports').find({ taskId: { $in: taskIds } }, { projection: { _id: 0 } }).toArray();
+      const byTask = {};
+      reports.forEach(r => { (byTask[r.taskId] = byTask[r.taskId] || []).push(r); });
+      tasks.forEach(t => { t.reports = byTask[t.id] || []; });
+      return json({ tasks });
+    }
+    if (path === 'admin/tasks' && method === 'GET') {
+      const auth = getAuthUser(request);
+      if (!auth || auth.role !== 'admin') return json({ error: 'Forbidden' }, 403);
+      const tasks = await db.collection('tasks').find({}, { projection: { _id: 0 } }).sort({ createdAt: -1 }).limit(500).toArray();
+      // Attach assignee info + reports
+      const userIds = [...new Set(tasks.map(t => t.assignedTo).filter(Boolean))];
+      const users = await db.collection('users').find({ id: { $in: userIds } }, { projection: { _id: 0, password: 0, aadhaar: 0, pan: 0, address: 0, aadhaarFront: 0, aadhaarBack: 0 } }).toArray();
+      const userMap = Object.fromEntries(users.map(u => [u.id, u]));
+      const taskIds = tasks.map(t => t.id);
+      const reports = await db.collection('task_reports').find({ taskId: { $in: taskIds } }, { projection: { _id: 0 } }).toArray();
+      const reportsByTask = {};
+      reports.forEach(r => { (reportsByTask[r.taskId] = reportsByTask[r.taskId] || []).push(r); });
+      tasks.forEach(t => {
+        t.assignee = userMap[t.assignedTo] ? { id: userMap[t.assignedTo].id, name: userMap[t.assignedTo].name, photo: userMap[t.assignedTo].photo, email: userMap[t.assignedTo].email, mobile: userMap[t.assignedTo].mobile, state: userMap[t.assignedTo].state, district: userMap[t.assignedTo].district } : null;
+        t.reports = reportsByTask[t.id] || [];
+      });
+      return json({ tasks });
+    }
+    if (path === 'admin/tasks' && method === 'POST') {
+      const auth = getAuthUser(request);
+      if (!auth || auth.role !== 'admin') return json({ error: 'Forbidden' }, 403);
+      const { title, description, assignedTo, deadline, priority = 'medium', location } = await request.json();
+      if (!title || !assignedTo) return json({ error: 'Title and assignee required' }, 400);
+      const task = { id: uuid(), title, description: description || '', assignedTo, deadline: deadline ? new Date(deadline) : null, priority, location: location || '', status: 'pending', createdAt: new Date(), createdBy: auth.id };
+      await db.collection('tasks').insertOne(task);
+      delete task._id;
+      return json({ ok: true, task });
+    }
+    if (path.startsWith('admin/tasks/') && method === 'DELETE') {
+      const auth = getAuthUser(request);
+      if (!auth || auth.role !== 'admin') return json({ error: 'Forbidden' }, 403);
+      const id = path.split('/')[2];
+      await db.collection('tasks').deleteOne({ id });
+      await db.collection('task_reports').deleteMany({ taskId: id });
+      return json({ ok: true });
+    }
+    if (path.startsWith('tasks/') && path.endsWith('/report') && method === 'POST') {
+      const auth = getAuthUser(request);
+      if (!auth) return json({ error: 'Unauthorized' }, 401);
+      const taskId = path.split('/')[1];
+      const task = await db.collection('tasks').findOne({ id: taskId });
+      if (!task) return json({ error: 'Task not found' }, 404);
+      if (task.assignedTo !== auth.id) return json({ error: 'Not your task' }, 403);
+      const { summary, findings, location, peopleInvolved, timeSpent, media, status = 'submitted' } = await request.json();
+      if (!summary) return json({ error: 'Report summary required' }, 400);
+      const report = {
+        id: uuid(), taskId, reporterId: auth.id, reporterName: auth.name || '',
+        summary, findings: findings || '', location: location || '',
+        peopleInvolved: peopleInvolved || '', timeSpent: timeSpent || '',
+        media: media || [], status, createdAt: new Date()
+      };
+      await db.collection('task_reports').insertOne(report);
+      // Auto-update task status if first report
+      await db.collection('tasks').updateOne({ id: taskId }, { $set: { status: status === 'completed' ? 'completed' : 'in-progress', lastReportAt: new Date() } });
+      delete report._id;
+      return json({ ok: true, report });
     }
 
     // ============ JOB POSTS / RECRUITMENT ============

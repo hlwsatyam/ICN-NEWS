@@ -185,6 +185,81 @@
         agent: "testing"
         comment: "✅ All 3 Featured News endpoints working correctly. GET /api/featured returns proper structure: featured array (5 news with isFeatured:true and future featuredUntil), slotsTotal:10, slotsUsed:5, slotsAvailable:5, full:false, fee:499, durationHours:24. Lazy expiry working (expired news cleaned up on read). POST /api/featured/order: (1) Returns 401 without token ✓, (2) Returns 404 with invalid newsId ✓, (3) SUCCESS with valid newsId - creates real Razorpay order (order_SuKYh4ECq4Pwo8, amount:49900 paise, keyId:rzp_live_RuAmqyoj9yIDOP, slotsAvailable:5) ✓. POST /api/featured/activate: (1) Returns 400 'Missing payment fields' when fields missing ✓, (2) Returns 400 'Invalid signature' with fake signature ✓. GET /api/news regression check passed - lazy expiry working. LIVE Razorpay integration fully functional. All validation and authorization working correctly."
 
+  - task: "Updates (Company Announcements)"
+    implemented: true
+    working: true
+    file: "/app/app/api/[[...path]]/route.js"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+      - working: "NA"
+        agent: "main"
+        comment: "NEW FEATURE: Updates endpoints implemented. POST /admin/updates (admin only) creates company announcements. GET /updates (auth required) returns updates list. DELETE /admin/updates/:id (admin only) removes updates."
+      - working: true
+        agent: "testing"
+        comment: "✅ All Updates endpoints working correctly (7 tests passed). POST /admin/updates (admin): Creates update with title, body, type, pinned fields, returns {ok:true, update:{id,...}} ✓. GET /updates (reporter auth): Returns {updates:[]} array ✓. GET /updates (admin auth): Returns updates list ✓. GET /updates (no auth): Correctly returns 401 ✓. POST /admin/updates (reporter): Correctly returns 403 ✓. DELETE /admin/updates/:id (admin): Deletes update successfully ✓. DELETE /admin/updates/:id (reporter): Correctly returns 403 ✓. All authentication and authorization working correctly."
+
+  - task: "FAQs (Public + Admin CRUD)"
+    implemented: true
+    working: true
+    file: "/app/app/api/[[...path]]/route.js"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+      - working: "NA"
+        agent: "main"
+        comment: "NEW FEATURE: FAQ endpoints implemented. GET /faqs (public, no auth) returns FAQs. POST /admin/faqs (admin) creates FAQ. PUT /admin/faqs/:id (admin) updates FAQ. DELETE /admin/faqs/:id (admin) removes FAQ."
+      - working: true
+        agent: "testing"
+        comment: "✅ All FAQ endpoints working correctly (4 tests passed). GET /faqs (public, no auth): Returns {faqs:[]} array, sorted by order ✓. POST /admin/faqs (admin): Creates FAQ with question, answer, order fields, returns {ok:true, faq:{id,...}} ✓. PUT /admin/faqs/:id (admin): Updates FAQ fields successfully ✓. DELETE /admin/faqs/:id (admin): Deletes FAQ successfully ✓. Public access working without authentication. Admin CRUD operations properly secured."
+
+  - task: "Operations/Tasks with Reports"
+    implemented: true
+    working: true
+    file: "/app/app/api/[[...path]]/route.js"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+      - working: "NA"
+        agent: "main"
+        comment: "NEW FEATURE: Task management system. POST /admin/tasks (admin) assigns tasks to reporters. GET /admin/tasks (admin) returns all tasks with assignee info populated. GET /tasks/my (reporter) returns their assigned tasks. POST /tasks/:taskId/report (reporter) submits task reports. DELETE /admin/tasks/:id (admin) removes task and reports."
+      - working: true
+        agent: "testing"
+        comment: "✅ All Task/Operations endpoints working correctly (12 tests passed). POST /admin/tasks (admin): Creates task with title, description, assignedTo, priority, deadline, location, returns {ok:true, task:{id,...}} ✓. Validation: Returns 400 without title ✓, returns 400 without assignedTo ✓. GET /admin/tasks (admin): Returns {tasks:[]} with assignee populated (id, name, photo, email, mobile, state, district) and reports array ✓. GET /tasks/my (reporter): Returns only their assigned tasks ✓. POST /tasks/:taskId/report (reporter): Submits report with summary, findings, location, peopleInvolved, timeSpent, status fields ✓. Auto-updates task status to 'in-progress' when status='submitted' ✓. Auto-updates task status to 'completed' when status='completed' ✓. Authorization: Returns 403 when reporter tries to submit report on another reporter's task ✓. DELETE /admin/tasks/:id (admin): Deletes task and all associated task_reports ✓. All validation, authorization, and auto-status updates working correctly."
+
+  - task: "Site Settings (with logo field)"
+    implemented: true
+    working: true
+    file: "/app/app/api/[[...path]]/route.js"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+      - working: "NA"
+        agent: "main"
+        comment: "NEW FEATURE: Site settings endpoint enhanced with logo field. GET /site-settings (public) returns settings including logo, siteName, tagline. PUT /site-settings (admin only) updates settings."
+      - working: true
+        agent: "testing"
+        comment: "✅ All Site Settings endpoints working correctly (5 tests passed). GET /site-settings (public, no auth): Returns settings with required fields logo, siteName, tagline (also includes youtubeVideos, instagram, supportTeam, contact) ✓. PUT /site-settings (admin): Updates settings successfully, returns {ok:true} ✓. Settings persistence verified: Updated values persist after PUT (tested with siteName='Test ICN', tagline='Test Tagline', then restored to original) ✓. PUT /site-settings (reporter): Correctly returns 403 ✓. Public access working, admin-only updates properly secured."
+
+  - task: "Help Requests (Public submission + Admin view)"
+    implemented: true
+    working: true
+    file: "/app/app/api/[[...path]]/route.js"
+    stuck_count: 0
+    priority: "medium"
+    needs_retesting: false
+    status_history:
+      - working: "NA"
+        agent: "main"
+        comment: "Help endpoints already implemented. POST /help (public) submits help request. GET /help (admin) returns help requests list. Quick smoke test requested."
+      - working: true
+        agent: "testing"
+        comment: "✅ All Help endpoints working correctly (3 tests passed). POST /help (public, no auth): Creates help request with name, contact, query fields, returns {ok:true, id, message} with Hindi message 'आपका सन्देश हमें मिल गया है। हम जल्द ही संपर्क करेंगे।' ✓. Validation: Returns 400 when required fields missing ✓. GET /help (admin): Returns {requests:[]} array with all help requests ✓. Public submission working, Hindi response confirmed, admin view properly secured."
+
 ## frontend
   - task: "Home Feed - news cards, breaking ticker, state quick-nav, infinite load"
     implemented: true
@@ -313,3 +388,7 @@
     message: "🆕 NEW FEATURE: Featured News (Top 10 paid slots). Please test ONLY the following 3 new endpoints (and ensure existing news/featured-flag visibility works): \n\n1) GET /api/featured → returns {featured:[], slotsTotal:10, slotsUsed, slotsAvailable, full, fee:499, durationHours:24}. Should auto-expire any news where featuredUntil <= now (lazy cleanup on read). \n\n2) POST /api/featured/order (Bearer auth required, reporter role): body {newsId}. Validates: ownership (reporter must own the news OR be admin), news.status must be 'approved', news must not already be featured, slots must be < 10. On success returns Razorpay order {orderId, amount: 49900 (paise), keyId, slotsAvailable}. With LIVE Razorpay keys configured this should succeed. \n\n3) POST /api/featured/activate (Bearer auth): body {razorpay_order_id, razorpay_payment_id, razorpay_signature, newsId}. Verifies HMAC signature, sets news.isFeatured=true, news.featuredAt=now, news.featuredUntil=now+24h, news.featuredPaymentId. Inserts payments record with type:'featured-news'. Race-guard: rechecks slots<10 even after payment. With LIVE keys, signature verification cannot easily be tested by automation — skip if needed, just verify endpoint returns 400 with 'Invalid signature' for fake payload. \n\nAlso important: GET /api/news (existing endpoint) now lazy-expires featured flags on read. \n\nDemo creds: reporter@icn.com / reporter123 (id 0de4408f-0b2a-4eea-927a-55b60e022c08). Reporter has multiple approved news in DB. Use one of their news IDs for /featured/order. Currently 5 news are pre-flagged as featured (set via mongosh) so the slotsUsed should be 5/10. \n\nDO NOT re-test the AI / PDF / Auth / etc — those are already verified and unchanged. Focus only on the featured endpoints."
   - agent: "testing"
     message: "✅ FEATURED NEWS TESTING COMPLETE - ALL 3 NEW ENDPOINTS PASSED (10/10 tests). Tested only the new Featured News endpoints as requested: (1) GET /api/featured (public) - Returns correct structure with featured array (5 news, all with isFeatured:true and future featuredUntil), slotsTotal:10, slotsUsed:5, slotsAvailable:5, full:false, fee:499, durationHours:24. Lazy expiry working correctly (expired news cleaned up on read). (2) POST /api/featured/order - All validations working: 401 without token ✓, 404 with invalid newsId ✓, SUCCESS with valid newsId creates real Razorpay order (order_SuKYh4ECq4Pwo8, amount:49900 paise/₹499, keyId:rzp_live_RuAmqyoj9yIDOP, slotsAvailable:5) ✓. LIVE Razorpay integration fully functional. (3) POST /api/featured/activate - Validation working: 400 'Missing payment fields' when fields missing ✓, 400 'Invalid signature' with fake signature ✓. (4) Regression check - GET /api/news still working correctly with lazy expiry. No critical issues found. All existing endpoints (auth, AI, PDF, analytics, payments) remain untested as instructed - they were already verified in previous test runs. Featured News feature is production-ready."
+  - agent: "main"
+    message: "🆕 NEW FEATURES BATCH 2: Updates (company announcements), FAQs, Operations/Tasks with Reports, Site Settings (logo field), Help requests. Please test ONLY these NEW endpoints: (1) Updates: POST /admin/updates (admin), GET /updates (auth required), DELETE /admin/updates/:id (admin). (2) FAQs: GET /faqs (public), POST /admin/faqs (admin), PUT /admin/faqs/:id (admin), DELETE /admin/faqs/:id (admin). (3) Tasks: POST /admin/tasks (admin with title+assignedTo required), GET /admin/tasks (admin - returns tasks with assignee populated), GET /tasks/my (reporter), POST /tasks/:taskId/report (reporter - auto-updates task status), DELETE /admin/tasks/:id (admin). (4) Site Settings: GET /site-settings (public - must include logo field), PUT /site-settings (admin). (5) Help: POST /help (public), GET /help (admin). Test with admin@icn.com/admin123 and reporter@icn.com/reporter123 (id: 0de4408f-0b2a-4eea-927a-55b60e022c08). DO NOT re-test existing endpoints."
+  - agent: "testing"
+    message: "✅ NEW FEATURES BATCH 2 TESTING COMPLETE - ALL 31 TESTS PASSED. Tested only the new endpoints as requested: (1) UPDATES (7 tests): POST /admin/updates creates announcements ✓, GET /updates returns list with auth ✓, requires auth (401 without) ✓, admin-only POST/DELETE (403 for reporters) ✓, DELETE works ✓. (2) FAQs (4 tests): GET /faqs public access ✓, POST creates FAQ ✓, PUT updates FAQ ✓, DELETE removes FAQ ✓. (3) TASKS/OPERATIONS (12 tests): POST creates task ✓, validation (400 without title/assignedTo) ✓, GET /admin/tasks returns with assignee populated (id/name/photo/email/mobile) and reports array ✓, GET /tasks/my returns reporter's tasks ✓, POST report auto-updates status to 'in-progress' ✓, status='completed' updates task ✓, cross-reporter 403 'Not your task' ✓, DELETE removes task+reports ✓. (4) SITE SETTINGS (5 tests): GET public returns logo/siteName/tagline ✓, PUT updates settings ✓, persistence verified ✓, non-admin 403 ✓. (5) HELP (3 tests): POST creates request with Hindi message ✓, validation 400 ✓, GET returns list (admin) ✓. All authentication, authorization, validation, and auto-status updates working correctly. No critical issues found. All new features production-ready."

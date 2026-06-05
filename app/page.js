@@ -6,6 +6,7 @@ import RichEditor from '@/components/RichEditor'
 import IndiaLocationPicker from '@/components/IndiaLocation'
 import { PressIDCard, SocialMediaDP } from '@/components/ICNewsCards'
 import CommunitySections, { AdminSiteSettings } from '@/components/CommunitySections'
+import ReporterQuickActions, { AdminOpsManagement } from '@/components/ReporterOps'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
@@ -122,16 +123,44 @@ const featureNewsPayment = async (token, news, onSuccess) => {
 }
 
 // ============ LOGO ============
+// Global site identity (logo URL, site name, tagline) — fetched once at app boot
+let _siteIdentity = { logo: '/branding/icn-logo.png', siteName: 'Indian Crime News', tagline: 'सच्चाई की आवाज़' }
+const siteIdentityListeners = new Set()
+const useSiteIdentity = () => {
+  const [s, setS] = useState(_siteIdentity)
+  useEffect(() => {
+    siteIdentityListeners.add(setS)
+    return () => siteIdentityListeners.delete(setS)
+  }, [])
+  return s
+}
+const refreshSiteIdentity = async () => {
+  try {
+    const r = await fetch(`${API}/site-settings`).then(r => r.json())
+    _siteIdentity = {
+      logo: r.logo || '/branding/icn-logo.png',
+      siteName: r.siteName || 'Indian Crime News',
+      tagline: r.tagline || 'सच्चाई की आवाज़'
+    }
+    siteIdentityListeners.forEach(fn => fn(_siteIdentity))
+  } catch {}
+}
+
 const Logo = ({ size = 'md' }) => {
-  const s = size === 'lg' ? 'h-12 w-12 text-2xl' : 'h-10 w-10 text-xl'
+  const ident = useSiteIdentity()
+  const dim = size === 'lg' ? 'h-12 w-12' : 'h-10 w-10'
   return (
     <div className="flex items-center gap-2">
-      <div className={`${s} bg-gradient-to-br from-red-600 to-red-800 rounded-lg flex items-center justify-center font-black text-white shadow-lg shadow-red-900/50`}>
-        ICN
-      </div>
+      {ident.logo ? (
+        <img src={ident.logo} alt={ident.siteName} className={`${dim} rounded-lg object-contain shadow-lg shadow-red-900/30 bg-black/50`} />
+      ) : (
+        <div className={`${dim} bg-gradient-to-br from-red-600 to-red-800 rounded-lg flex items-center justify-center font-black text-white shadow-lg shadow-red-900/50 text-xl`}>
+          ICN
+        </div>
+      )}
       <div className="flex flex-col leading-tight">
-        <span className="font-black text-base md:text-lg text-white">Indian Crime News</span>
-        <span className="text-[10px] md:text-xs text-red-500 font-bold tracking-wide">सच्चाई की आवाज़</span>
+        <span className="font-black text-base md:text-lg text-white">{ident.siteName}</span>
+        <span className="text-[10px] md:text-xs text-red-500 font-bold tracking-wide">{ident.tagline}</span>
       </div>
     </div>
   )
@@ -1911,6 +1940,9 @@ const Dashboard = ({ user, token }) => {
         </div>
       </div>
 
+      {/* QUICK ACTIONS: New Updates, Operations, FAQs */}
+      <ReporterQuickActions token={token} />
+
       {/* My News */}
       <div>
         <div className="flex items-center justify-between mb-3">
@@ -2299,6 +2331,7 @@ const AdminPanel = ({ token, user }) => {
           <TabsTrigger value="breaking" className="data-[state=active]:bg-red-600">Breaking</TabsTrigger>
           <TabsTrigger value="payouts" className="data-[state=active]:bg-red-600">Payouts ({payouts.filter(p => p.status === 'pending').length})</TabsTrigger>
           <TabsTrigger value="analytics" className="data-[state=active]:bg-red-600">Analytics</TabsTrigger>
+          <TabsTrigger value="ops" className="data-[state=active]:bg-red-600">Ops & FAQ</TabsTrigger>
           <TabsTrigger value="site" className="data-[state=active]:bg-red-600">Site Settings</TabsTrigger>
         </TabsList>
 
@@ -2527,6 +2560,10 @@ const AdminPanel = ({ token, user }) => {
 
         <TabsContent value="site" className="mt-4">
           <AdminSiteSettings token={token} />
+        </TabsContent>
+
+        <TabsContent value="ops" className="mt-4">
+          <AdminOpsManagement token={token} />
         </TabsContent>
       </Tabs>
 
@@ -2862,16 +2899,21 @@ const App = () => {
     const t = localStorage.getItem('icn_token')
     const u = localStorage.getItem('icn_user')
     if (t && u) { setToken(t); setUser(JSON.parse(u)) }
+    refreshSiteIdentity()  // boot-time logo/site name/tagline fetch (auto-seeds on backend if absent)
     const fetchBreaking = () => fetch(`${API}/breaking`).then(r => r.json()).then(d => setBreaking(d.breaking || []))
     fetchBreaking()
     const interval = setInterval(fetchBreaking, 15000)
-    return () => clearInterval(interval)
+    const onSettingsUpdate = () => refreshSiteIdentity()
+    window.addEventListener('site-settings-updated', onSettingsUpdate)
+    return () => { clearInterval(interval); window.removeEventListener('site-settings-updated', onSettingsUpdate) }
   }, [])
 
   const onLogin = (u) => {
     setUser(u)
     setToken(localStorage.getItem('icn_token'))
     setView(u.role === 'admin' ? 'admin' : 'dashboard')
+    // Re-fetch identity on login (admin login auto-seeds site-settings via GET below)
+    refreshSiteIdentity()
   }
   const onLogout = () => {
     localStorage.removeItem('icn_token')

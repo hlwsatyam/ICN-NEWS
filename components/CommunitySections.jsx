@@ -408,7 +408,11 @@ export const AdminSiteSettings = ({ token }) => {
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
       body: JSON.stringify(s)
     }).then(r => r.json())
-    if (r.ok) toast.success('Site Settings saved!')
+    if (r.ok) {
+      toast.success('Site Settings saved! Logo/branding updated site-wide.')
+      // Notify any global listeners to re-fetch site identity (logo/name/tagline)
+      window.dispatchEvent(new CustomEvent('site-settings-updated'))
+    }
     else toast.error(r.error || 'Save failed')
     setBusy(false)
   }
@@ -426,6 +430,47 @@ export const AdminSiteSettings = ({ token }) => {
 
   return (
     <div className="space-y-6">
+      {/* BRANDING — Logo, Site Name, Tagline */}
+      <div className="bg-zinc-950 border border-zinc-800 rounded-xl p-4">
+        <h3 className="font-bold text-white mb-3 flex items-center gap-2"><FileText className="h-5 w-5 text-red-500" /> Branding (Logo & Site Identity)</h3>
+        <div className="flex flex-col md:flex-row gap-4">
+          <div className="flex-shrink-0 flex flex-col items-center gap-2">
+            <div className="w-32 h-32 rounded-xl bg-zinc-900 border border-zinc-800 overflow-hidden flex items-center justify-center">
+              {s.logo ? <img src={s.logo} alt="Logo" className="w-full h-full object-contain" /> : <span className="text-zinc-600 text-xs">No logo</span>}
+            </div>
+            <input
+              type="file"
+              accept="image/*"
+              id="logo-upload"
+              className="hidden"
+              onChange={async (e) => {
+                const f = e.target.files?.[0]
+                if (!f) return
+                if (f.size > 5 * 1024 * 1024) { toast.error('Max 5MB allowed'); return }
+                const data = await new Promise(res => { const r = new FileReader(); r.onload = () => res(r.result); r.readAsDataURL(f) })
+                update('logo', data)
+                toast.success('Logo loaded — click "Save All" to apply site-wide')
+              }}
+            />
+            <label htmlFor="logo-upload" className="text-xs text-red-400 hover:text-red-300 cursor-pointer underline">Upload new logo</label>
+            {s.logo && (
+              <button onClick={() => update('logo', '')} className="text-[10px] text-zinc-500 hover:text-red-400">Remove</button>
+            )}
+          </div>
+          <div className="flex-1 space-y-2">
+            <div>
+              <label className="text-[11px] text-zinc-400 block mb-1">Site Name</label>
+              <Input placeholder="e.g. Indian Crime News" value={s.siteName || ''} onChange={e => update('siteName', e.target.value)} className="bg-zinc-900 border-zinc-800 text-white" />
+            </div>
+            <div>
+              <label className="text-[11px] text-zinc-400 block mb-1">Tagline (Hindi/English)</label>
+              <Input placeholder="e.g. सच्चाई की आवाज़" value={s.tagline || ''} onChange={e => update('tagline', e.target.value)} className="bg-zinc-900 border-zinc-800 text-white" />
+            </div>
+            <p className="text-[11px] text-zinc-500">PNG/JPG/SVG up to 5MB. Transparent PNG recommended.</p>
+          </div>
+        </div>
+      </div>
+
       {/* YOUTUBE */}
       <div className="bg-zinc-950 border border-zinc-800 rounded-xl p-4">
         <h3 className="font-bold text-white mb-3 flex items-center gap-2"><Youtube className="h-5 w-5 text-red-500" /> YouTube Videos (6 thumbnails)</h3>
