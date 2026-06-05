@@ -534,7 +534,7 @@ const SocialFeed = () => {
 }
 
 // ============ HOME FEED ============
-const HomeFeed = ({ onArticle, onState }) => {
+const HomeFeed = ({ onArticle, onState, onNav, user }) => {
   const [news, setNews] = useState([])
   const [page, setPage] = useState(1)
   const [hasMore, setHasMore] = useState(true)
@@ -704,8 +704,8 @@ const HomeFeed = ({ onArticle, onState }) => {
         </div>
       )}
 
-      {/* COMMUNITY SECTIONS: YouTube, Instagram, Help, Support, Contact */}
-      <CommunitySections />
+      {/* COMMUNITY SECTIONS: YouTube, Instagram, Join CTA (if not logged in), Help, Support, Contact */}
+      <CommunitySections onJoinClick={() => onNav && onNav('join')} hideJoinCTA={!!user} />
     </div>
   )
 }
@@ -1234,10 +1234,20 @@ const JoinForm = ({ onLogin, onNav }) => {
                 value={location}
                 onChange={setLocation}
                 requireVillage={joinType === 'city'}
+                level={joinType}
               />
+              {joinType === 'city' && location.district && !(location.city || location.village) && (
+                <p className="text-[11px] text-yellow-500 -mt-1">Tip: Type your village/locality above for precise matching. You can still view available posts in this district below.</p>
+              )}
               <div className="flex gap-2">
                 <Button onClick={() => setStep(0)} variant="outline" className="flex-1 border-zinc-800 bg-zinc-900 text-white">← Back</Button>
-                <Button onClick={() => setStep(2)} disabled={!location.state || (joinType !== 'state' && !location.district) || (joinType === 'city' && !(location.city || location.village))} className="flex-1 bg-red-600 hover:bg-red-700">View Available Posts →</Button>
+                <Button
+                  onClick={() => setStep(2)}
+                  disabled={!location.state || (joinType !== 'state' && !location.district)}
+                  className="flex-1 bg-red-600 hover:bg-red-700"
+                >
+                  View Available Posts →
+                </Button>
               </div>
             </>
           )}
@@ -1257,22 +1267,38 @@ const JoinForm = ({ onLogin, onNav }) => {
                 </div>
               ) : (
                 <div className="space-y-2">
-                  {availablePosts.map(p => {
-                    const filled = p.availableSeats <= 0
-                    return (
-                      <button key={p.id} onClick={() => filled ? selectPost(p) : selectPost(p)}
-                        className={`w-full p-3 rounded-xl border-2 text-left ${filled ? 'border-zinc-800 bg-zinc-900 opacity-70' : 'border-red-900/50 bg-red-950/20 hover:border-red-600'}`}>
-                        <div className="flex items-center justify-between flex-wrap gap-2">
-                          <p className="font-bold text-white">{p.name}</p>
-                          <Badge className="bg-yellow-600">₹{p.joiningFee}</Badge>
-                        </div>
-                        <p className="text-xs text-zinc-400 mt-1">{p.description?.slice(0, 80)}</p>
-                        <div className="flex items-center justify-between mt-2">
-                          <span className="text-xs">{p.filledSeats || 0}/{p.totalVacancy} filled</span>
-                          {filled ? <Badge className="bg-red-700">⛔ All Filled</Badge> : <Badge className="bg-green-700">✅ {p.availableSeats} seats open</Badge>}
-                        </div>
-                      </button>
-                    )
+                  {/* Expand each post into N rows where N = totalVacancy. Each row represents a single seat/slot. */}
+                  {availablePosts.flatMap(p => {
+                    const total = Math.max(1, Number(p.totalVacancy) || 1)
+                    const filledSeats = Math.min(total, Number(p.filledSeats) || 0)
+                    return Array.from({ length: total }, (_, i) => {
+                      const seatNo = i + 1
+                      const isFilled = seatNo <= filledSeats
+                      return (
+                        <button
+                          key={`${p.id}-seat-${seatNo}`}
+                          onClick={() => selectPost(p)}
+                          className={`w-full p-3 rounded-xl border-2 text-left ${isFilled ? 'border-zinc-800 bg-zinc-900 opacity-70' : 'border-red-900/50 bg-red-950/20 hover:border-red-600'}`}
+                        >
+                          <div className="flex items-center justify-between flex-wrap gap-2">
+                            <div className="flex items-center gap-2 min-w-0">
+                              <span className={`inline-flex h-6 min-w-[3rem] px-2 items-center justify-center rounded-md text-[10px] font-black ${isFilled ? 'bg-zinc-800 text-zinc-400' : 'bg-red-700 text-white'}`}>
+                                Seat {seatNo}/{total}
+                              </span>
+                              <p className="font-bold text-white truncate">{p.name}</p>
+                            </div>
+                            <Badge className="bg-yellow-600">₹{p.joiningFee}</Badge>
+                          </div>
+                          <p className="text-xs text-zinc-400 mt-1">{p.description?.slice(0, 80)}</p>
+                          <div className="flex items-center justify-between mt-2">
+                            <span className="text-xs text-zinc-500">{p.filledSeats || 0}/{total} filled overall</span>
+                            {isFilled
+                              ? <Badge className="bg-red-700">⛔ Filled</Badge>
+                              : <Badge className="bg-green-700">✅ Open</Badge>}
+                          </div>
+                        </button>
+                      )
+                    })
                   })}
                 </div>
               )}
@@ -2940,7 +2966,7 @@ const App = () => {
 
       <AnimatePresence mode="wait">
         <motion.div key={view} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} transition={{ duration: 0.2 }}>
-          {view === 'home' && <HomeFeed onArticle={onArticle} onState={onState} />}
+          {view === 'home' && <HomeFeed onArticle={onArticle} onState={onState} onNav={handleNav} user={user} />}
           {view === 'article' && article && <ArticleView news={article} onBack={() => setView('home')} onState={onState} />}
           {view === 'state' && activeState && <StatePage stateName={activeState} onBack={() => setView('home')} onArticle={onArticle} />}
           {view === 'social' && (
@@ -2976,27 +3002,6 @@ const App = () => {
           <p className="text-zinc-600 text-xs">India's biggest crime news network • AI-Powered Journalism</p>
         </div>
       </footer>
-
-      {/* JOIN-NOW CTA — placed BELOW the footer (desktop only; mobile already has it in bottom nav) */}
-      {!user && (
-        <section className="hidden md:block bg-gradient-to-r from-red-700 via-red-600 to-red-700 border-t border-red-900/60">
-          <div className="max-w-7xl mx-auto px-4 py-5 flex flex-col md:flex-row items-center justify-between gap-3">
-            <div className="text-center md:text-left">
-              <p className="text-white font-black text-lg md:text-xl flex items-center gap-2 justify-center md:justify-start">
-                <Megaphone className="h-5 w-5" /> Become a Crime Reporter Today
-              </p>
-              <p className="text-red-100 text-xs md:text-sm">India's biggest crime news network — earn, report &amp; make impact.</p>
-            </div>
-            <Button
-              onClick={() => handleNav('join')}
-              size="lg"
-              className="bg-black hover:bg-zinc-900 text-white font-bold px-6 shadow-2xl shadow-black/50 border border-white/20"
-            >
-              <UserPlus className="h-5 w-5 mr-2" /> Join Now — Apply for a Post
-            </Button>
-          </div>
-        </section>
-      )}
     </div>
   )
 }

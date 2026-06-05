@@ -55,12 +55,12 @@ export const SearchableCombobox = ({ items, value, onSelect, placeholder, disabl
 /**
  * IndiaLocationPicker — All India state/city/village picker.
  * value shape: { state, stateCode, district, city, village }
- * Mapping:
- *   - state    => CSC state name
- *   - district => CSC city name (acts as district HQ)
- *   - city     => village/area (manual text input)
+ * level: 'state' | 'district' | 'city' (controls which fields are visible/required)
+ *   - state    => only show State combobox
+ *   - district => show State + District
+ *   - city     => show State + District + Village input
  */
-export default function IndiaLocationPicker({ value = {}, onChange, requireVillage = true }) {
+export default function IndiaLocationPicker({ value = {}, onChange, requireVillage = true, level = 'city' }) {
   const states = useMemo(
     () => State.getStatesOfCountry('IN').map(s => ({ value: s.isoCode, label: s.name, isoCode: s.isoCode })),
     []
@@ -72,9 +72,12 @@ export default function IndiaLocationPicker({ value = {}, onChange, requireVilla
     [value.stateCode]
   )
 
+  const showDistrict = level === 'district' || level === 'city'
+  const showVillage = level === 'city'
+
   return (
     <div className="space-y-2">
-      {/* STATE */}
+      {/* STATE — always shown */}
       <SearchableCombobox
         items={states}
         value={value.state || ''}
@@ -82,17 +85,19 @@ export default function IndiaLocationPicker({ value = {}, onChange, requireVilla
         onSelect={it => onChange({ state: it.label, stateCode: it.isoCode, district: '', city: '', village: '' })}
       />
 
-      {/* CITY / DISTRICT */}
-      <SearchableCombobox
-        items={cities}
-        value={value.district || ''}
-        placeholder={value.stateCode ? `Select City / District (${cities.length}) *` : 'Choose state first'}
-        disabled={!value.stateCode}
-        onSelect={it => onChange({ ...value, district: it.label, city: '', village: '' })}
-      />
+      {/* CITY / DISTRICT — hidden for State Level */}
+      {showDistrict && (
+        <SearchableCombobox
+          items={cities}
+          value={value.district || ''}
+          placeholder={value.stateCode ? `Select City / District (${cities.length}) *` : 'Choose state first'}
+          disabled={!value.stateCode}
+          onSelect={it => onChange({ ...value, district: it.label, city: '', village: '' })}
+        />
+      )}
 
-      {/* VILLAGE / AREA — manual text input */}
-      {value.district && (
+      {/* VILLAGE / AREA — manual text input, only for City Level */}
+      {showVillage && value.district && (
         <div className="bg-zinc-900/60 border border-zinc-800 rounded-lg p-2.5 space-y-2">
           <p className="text-[11px] text-zinc-400 flex items-center gap-1">
             <MapPin className="h-3 w-3 text-red-500" /> Village / Locality {requireVillage && <span className="text-red-500">*</span>}

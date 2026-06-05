@@ -364,7 +364,7 @@ const QuickActionCards = ({ contact, supportTeam, onHelp, onSupport }) => {
 /* ============================================================
    MAIN EXPORT — community sections to render below "Load More News"
    ============================================================ */
-export default function CommunitySections() {
+export default function CommunitySections({ onJoinClick, hideJoinCTA = false }) {
   const [settings, setSettings] = useState(null)
   const [showHelp, setShowHelp] = useState(false)
   const [showSupport, setShowSupport] = useState(false)
@@ -378,6 +378,31 @@ export default function CommunitySections() {
     <>
       <YouTubeGrid videos={settings.youtubeVideos} />
       <InstagramBox instagram={settings.instagram} />
+
+      {/* JOIN-NOW CTA — directly below Instagram (per user UX requirement) */}
+      {!hideJoinCTA && onJoinClick && (
+        <section className="mt-8">
+          <div className="bg-gradient-to-r from-red-700 via-red-600 to-red-700 rounded-2xl border border-red-900/50 shadow-2xl shadow-red-950/40 overflow-hidden">
+            <div className="px-5 py-5 md:px-8 md:py-6 flex flex-col md:flex-row items-center justify-between gap-3">
+              <div className="text-center md:text-left">
+                <p className="text-white font-black text-lg md:text-2xl flex items-center gap-2 justify-center md:justify-start">
+                  <span className="text-2xl">📢</span> Become a Crime Reporter Today
+                </p>
+                <p className="text-red-100 text-xs md:text-sm mt-1">
+                  India's biggest crime news network — earn money daily, report &amp; make impact.
+                </p>
+              </div>
+              <button
+                onClick={onJoinClick}
+                className="bg-black hover:bg-zinc-900 text-white font-bold px-6 py-3 rounded-lg shadow-2xl shadow-black/50 border border-white/20 inline-flex items-center gap-2 whitespace-nowrap"
+              >
+                <span>✨</span> Join Now — Apply for a Post
+              </button>
+            </div>
+          </div>
+        </section>
+      )}
+
       <QuickActionCards
         contact={settings.contact}
         supportTeam={settings.supportTeam}
