@@ -7,6 +7,8 @@ import { generateNewsPDF, generateIDCardPDF, generateCertificatePDF } from '@/li
 import { v4 as uuid } from 'uuid';
 import Razorpay from 'razorpay';
 import crypto from 'crypto';
+import fs from 'fs/promises';
+import path_ from 'path';
 
 const json = (data, status = 200) => NextResponse.json(data, { status });
 
@@ -36,6 +38,14 @@ async function handler(request, { params }) {
         socialFacebook, socialTwitter, socialInstagram, socialYoutube
       } = body;
       if (!email || !password || !name) return json({ error: 'Missing fields' }, 400);
+
+      // Validate total image sizes to prevent MongoDB BSON document limit error (~16MB)
+      const totalBase64Size = [aadhaarFront, aadhaarBack, profilePhoto, coverBanner]
+        .filter(Boolean)
+        .reduce((sum, str) => sum + (str?.length || 0), 0);
+      if (totalBase64Size > 12 * 1024 * 1024) {
+        return json({ error: 'Images are too large. Please upload smaller photos (max ~3MB each).' }, 400);
+      }
       const exists = await db.collection('users').findOne({ email });
       if (exists) return json({ error: 'Email already registered' }, 400);
 
@@ -77,6 +87,7 @@ async function handler(request, { params }) {
         referralCode: name.toUpperCase().replace(/\s/g, '').slice(0, 6) + Math.floor(Math.random() * 1000),
         referredBy,
         paymentStatus: 'pending',
+        membershipStatus: 'pending',
         createdAt: new Date()
       };
       await db.collection('users').insertOne(user);
@@ -251,7 +262,7 @@ async function handler(request, { params }) {
     // ============ AI ============
     if (path === 'ai/generate-headline' && method === 'POST') {
       const { content, state, district, category } = await request.json();
-      const sys = 'You are an expert Indian crime news headline writer. Generate ONE punchy bilingual (Hindi + English mix) headline in less than 18 words. Use \u20b9 for rupees. NO quotes, NO numbering, just the headline text.';
+      const sys = 'You are an expert IC News headline writer. Generate ONE punchy bilingual (Hindi + English mix) headline in less than 18 words. Use \u20b9 for rupees. NO quotes, NO numbering, just the headline text.';
       const prompt = `Write a viral, breaking-news-style headline for this crime news story.\nState: ${state || 'India'}\nDistrict: ${district || ''}\nCategory: ${category || 'crime'}\nStory content: ${content?.slice(0, 1500)}\n\nReturn only the headline.`;
       const headline = await generateText(prompt, sys);
       return json({ headline: headline.trim().replace(/^["']|["']$/g, '') });
@@ -457,8 +468,35 @@ async function handler(request, { params }) {
     if (path === 'users' && method === 'GET') {
       const auth = getAuthUser(request);
       if (!auth || auth.role !== 'admin') return json({ error: 'Forbidden' }, 403);
-      const users = await db.collection('users').find({}, { projection: { password: 0, _id: 0 } }).toArray();
-      return json({ users });
+      const url = new URL(request.url);
+      const page = parseInt(url.searchParams.get('page') || '1');
+      const limit = parseInt(url.searchParams.get('limit') || '20');
+      const search = url.searchParams.get('q') || '';
+      const role = url.searchParams.get('role') || '';
+      const status = url.searchParams.get('status') || '';
+      const membershipStatus = url.searchParams.get('membershipStatus') || '';
+
+      const q = {};
+      if (search) {
+        q.$or = [
+          { name: { $regex: search, $options: 'i' } },
+          { email: { $regex: search, $options: 'i' } },
+          { mobile: { $regex: search, $options: 'i' } },
+          { referralCode: { $regex: search, $options: 'i' } }
+        ];
+      }
+      if (role) q.role = role;
+      if (status) q.paymentStatus = status;
+      if (membershipStatus) q.membershipStatus = membershipStatus;
+
+      const total = await db.collection('users').countDocuments(q);
+      const users = await db.collection('users')
+        .find(q, { projection: { password: 0, _id: 0 } })
+        .sort({ createdAt: -1 })
+        .skip((page - 1) * limit)
+        .limit(limit)
+        .toArray();
+      return json({ users, total, page, hasMore: page * limit < total });
     }
 
     // ============ REFERRALS ============
@@ -731,7 +769,7 @@ async function handler(request, { params }) {
         // Seed defaults
         s = {
           id: 'site',
-          siteName: 'Indian Crime News',
+          siteName: 'IC News',
           tagline: 'सच्चाई की आवाज़',
           logo: '/branding/icn-logo.png',
           youtubeVideos: [
@@ -763,10 +801,10 @@ async function handler(request, { params }) {
         // Backfill logo if upgrading from older seed
         await db.collection('settings').updateOne(
           { id: 'site' },
-          { $set: { logo: '/branding/icn-logo.png', siteName: s.siteName || 'Indian Crime News', tagline: s.tagline || 'सच्चाई की आवाज़' } }
+          { $set: { logo: '/branding/icn-logo.png', siteName: s.siteName || 'IC News', tagline: s.tagline || 'सच्चाई की आवाज़' } }
         );
         s.logo = '/branding/icn-logo.png';
-        s.siteName = s.siteName || 'Indian Crime News';
+        s.siteName = s.siteName || 'IC News';
         s.tagline = s.tagline || 'सच्चाई की आवाज़';
       }
       const { _id, ...rest } = s;
@@ -1138,7 +1176,7 @@ async function handler(request, { params }) {
 
     // ============ HEALTH ============
     if (path === '' || path === 'health') {
-      return json({ status: 'ok', app: 'Indian Crime News API', timestamp: new Date() });
+      return json({ status: 'ok', app: 'IC News API', timestamp: new Date() });
     }
 
     // ============ PDF DOWNLOADS ============
@@ -1181,6 +1219,271 @@ async function handler(request, { params }) {
           'Content-Disposition': `attachment; filename="certificate-${id}.pdf"`
         }
       });
+    }
+
+    // ============ PRESS ID CARD MANAGEMENT ============
+    // Admin: Upload/update Press ID Card PDF for a user
+    if (path.startsWith('admin/users/') && path.endsWith('/press-card') && method === 'POST') {
+      const auth = getAuthUser(request);
+      if (!auth || auth.role !== 'admin') return json({ error: 'Forbidden' }, 403);
+      const userId = path.split('/')[2];
+
+      const user = await db.collection('users').findOne({ id: userId });
+      if (!user) return json({ error: 'User not found' }, 404);
+
+      const formData = await request.formData();
+      const file = formData.get('pressCard');
+
+      if (!file) return json({ error: 'No file uploaded' }, 400);
+      if (file.type !== 'application/pdf') return json({ error: 'Only PDF files are allowed' }, 400);
+      if (file.size > 5 * 1024 * 1024) return json({ error: 'File size exceeds 5MB limit' }, 400);
+
+      const ext = 'pdf';
+      const filename = `press-card-${userId}-${Date.now()}.${ext}`;
+      const uploadDir = path_.join(process.cwd(), 'public', 'uploads', 'press-cards');
+      const filePath = path_.join(uploadDir, filename);
+
+      await fs.mkdir(uploadDir, { recursive: true });
+
+      const buffer = Buffer.from(await file.arrayBuffer());
+      await fs.writeFile(filePath, buffer);
+
+      const pressCardUrl = `/uploads/press-cards/${filename}`;
+
+      // Update user's pressCardPath, also keeping old one for cleanup reference
+      const oldPressCard = user.pressCardPath;
+      await db.collection('users').updateOne(
+        { id: userId },
+        { $set: { pressCardPath: pressCardUrl, pressCardUpdatedAt: new Date() } }
+      );
+
+      // Delete old file if it exists and is different
+      if (oldPressCard && oldPressCard !== pressCardUrl) {
+        const oldPath = path_.join(process.cwd(), 'public', oldPressCard);
+        try { await fs.unlink(oldPath); } catch { /* ignore if old file doesn't exist */ }
+      }
+
+      return json({ ok: true, pressCardUrl, message: 'Press ID Card uploaded successfully' });
+    }
+
+    // Admin: Delete Press ID Card for a user
+    if (path.startsWith('admin/users/') && path.endsWith('/press-card') && method === 'DELETE') {
+      const auth = getAuthUser(request);
+      if (!auth || auth.role !== 'admin') return json({ error: 'Forbidden' }, 403);
+      const userId = path.split('/')[2];
+
+      const user = await db.collection('users').findOne({ id: userId });
+      if (!user) return json({ error: 'User not found' }, 404);
+
+      const oldPath = user.pressCardPath ? path_.join(process.cwd(), 'public', user.pressCardPath) : null;
+      await db.collection('users').updateOne(
+        { id: userId },
+        { $unset: { pressCardPath: '', pressCardUpdatedAt: '' } }
+      );
+
+      if (oldPath) {
+        try { await fs.unlink(oldPath); } catch { /* ignore */ }
+      }
+
+      return json({ ok: true, message: 'Press ID Card removed' });
+    }
+
+    // Reporter: Get own Press ID Card PDF
+    if (path === 'press-card' && method === 'GET') {
+      const auth = getAuthUser(request);
+      if (!auth) return json({ error: 'Unauthorized' }, 401);
+
+      const user = await db.collection('users').findOne({ id: auth.id });
+      if (!user) return json({ error: 'User not found' }, 404);
+
+      if (!user.pressCardPath) {
+        return json({ error: 'Your Press ID Card has not been issued yet. Please contact the administrator.', noCard: true }, 404);
+      }
+
+      const filePath = path_.join(process.cwd(), 'public', user.pressCardPath);
+      try {
+        await fs.access(filePath);
+        const fileBuffer = await fs.readFile(filePath);
+        return new Response(fileBuffer, {
+          headers: {
+            'Content-Type': 'application/pdf',
+            'Content-Disposition': `attachment; filename="press-id-${auth.id}.pdf"`
+          }
+        });
+      } catch {
+        return json({ error: 'Press ID Card file not found on server. Please contact administrator.' }, 404);
+      }
+    }
+
+    // Admin: Check if a user has press card info (GET endpoint)
+    if (path.startsWith('admin/users/') && path.split('/').length === 3 && path.endsWith('/press-card-info') && method === 'GET') {
+      const auth = getAuthUser(request);
+      if (!auth || auth.role !== 'admin') return json({ error: 'Forbidden' }, 403);
+      const userId = path.split('/')[2];
+
+      const user = await db.collection('users').findOne(
+        { id: userId },
+        { projection: { pressCardPath: 1, pressCardUpdatedAt: 1, id: 1, name: 1, email: 1 } }
+      );
+      if (!user) return json({ error: 'User not found' }, 404);
+      return json({
+        hasPressCard: !!user.pressCardPath,
+        pressCardUrl: user.pressCardPath || null,
+        pressCardUpdatedAt: user.pressCardUpdatedAt || null
+      });
+    }
+
+    // ============ ADMIN USER MANAGEMENT ============
+    // Get single user details (full profile, excluding password)
+    if (path.startsWith('admin/users/') && path.split('/').length === 3 && method === 'GET') {
+      const auth = getAuthUser(request);
+      if (!auth || auth.role !== 'admin') return json({ error: 'Forbidden' }, 403);
+      const userId = path.split('/')[2];
+      const user = await db.collection('users').findOne(
+        { id: userId },
+        { projection: { password: 0, _id: 0 } }
+      );
+      if (!user) return json({ error: 'User not found' }, 404);
+      return json({ user });
+    }
+
+    // Update user details
+    if (path.startsWith('admin/users/') && path.split('/').length === 3 && method === 'PUT') {
+      const auth = getAuthUser(request);
+      if (!auth || auth.role !== 'admin') return json({ error: 'Forbidden' }, 403);
+      const userId = path.split('/')[2];
+      const body = await request.json();
+
+      const user = await db.collection('users').findOne({ id: userId });
+      if (!user) return json({ error: 'User not found' }, 404);
+
+      // Fields that admin is allowed to update
+      const allowed = [
+        'name', 'email', 'mobile', 'state', 'district', 'city', 'pincode', 'village',
+        'role', 'designation', 'bio', 'experience', 'address',
+        'aadhaar', 'pan', 'paymentStatus', 'membershipStatus', 'photo', 'coverBanner',
+        'social', 'verified'
+      ];
+      const update = {};
+      for (const key of allowed) {
+        if (body[key] !== undefined) {
+          update[key] = body[key];
+        }
+      }
+
+      if (Object.keys(update).length === 0) {
+        return json({ error: 'No valid fields to update' }, 400);
+      }
+
+      await db.collection('users').updateOne(
+        { id: userId },
+        { $set: { ...update, updatedAt: new Date() } }
+      );
+
+      return json({ ok: true, message: 'User updated successfully' });
+    }
+
+    // Change user password
+    if (path.startsWith('admin/users/') && path.endsWith('/change-password') && method === 'POST') {
+      const auth = getAuthUser(request);
+      if (!auth || auth.role !== 'admin') return json({ error: 'Forbidden' }, 403);
+      const userId = path.split('/')[2];
+      const { newPassword } = await request.json();
+
+      if (!newPassword || newPassword.length < 6) {
+        return json({ error: 'Password must be at least 6 characters' }, 400);
+      }
+
+      const user = await db.collection('users').findOne({ id: userId });
+      if (!user) return json({ error: 'User not found' }, 404);
+
+      const hashed = await hashPassword(newPassword);
+      await db.collection('users').updateOne(
+        { id: userId },
+        { $set: { password: hashed, updatedAt: new Date() } }
+      );
+
+      return json({ ok: true, message: 'Password changed successfully' });
+    }
+
+    // Approve membership
+    if (path.startsWith('admin/users/') && path.endsWith('/approve') && method === 'POST') {
+      const auth = getAuthUser(request);
+      if (!auth || auth.role !== 'admin') return json({ error: 'Forbidden' }, 403);
+      const userId = path.split('/')[2];
+
+      const user = await db.collection('users').findOne({ id: userId });
+      if (!user) return json({ error: 'User not found' }, 404);
+
+      await db.collection('users').updateOne(
+        { id: userId },
+        { $set: { membershipStatus: 'approved', verified: true, approvedAt: new Date() } }
+      );
+
+      return json({ ok: true, message: 'Member approved successfully' });
+    }
+
+    // Reject membership
+    if (path.startsWith('admin/users/') && path.endsWith('/reject') && method === 'POST') {
+      const auth = getAuthUser(request);
+      if (!auth || auth.role !== 'admin') return json({ error: 'Forbidden' }, 403);
+      const userId = path.split('/')[2];
+
+      const user = await db.collection('users').findOne({ id: userId });
+      if (!user) return json({ error: 'User not found' }, 404);
+
+      await db.collection('users').updateOne(
+        { id: userId },
+        { $set: { membershipStatus: 'rejected', rejectedAt: new Date() } }
+      );
+
+      return json({ ok: true, message: 'Member rejected' });
+    }
+
+    // Delete user
+    if (path.startsWith('admin/users/') && path.split('/').length === 3 && method === 'DELETE') {
+      const auth = getAuthUser(request);
+      if (!auth || auth.role !== 'admin') return json({ error: 'Forbidden' }, 403);
+      const userId = path.split('/')[2];
+
+      const user = await db.collection('users').findOne({ id: userId });
+      if (!user) return json({ error: 'User not found' }, 404);
+
+      // Prevent admin from deleting themselves
+      if (userId === auth.id) return json({ error: 'Cannot delete your own account' }, 400);
+
+      // Delete user and associated data
+      await db.collection('users').deleteOne({ id: userId });
+      await db.collection('news').deleteMany({ reporterId: userId });
+      await db.collection('referrals').deleteMany({ $or: [{ referrerId: userId }, { referredUserId: userId }] });
+      await db.collection('payouts').deleteMany({ userId });
+      await db.collection('ads').deleteMany({ reporterId: userId });
+      await db.collection('tasks').deleteMany({ assignedTo: userId });
+
+      // Clean up press card file if exists
+      if (user.pressCardPath) {
+        const filePath = path_.join(process.cwd(), 'public', user.pressCardPath);
+        try { await fs.unlink(filePath); } catch { /* ignore */ }
+      }
+
+      return json({ ok: true, message: 'User and all associated data deleted' });
+    }
+
+    // Approve payment (set paymentStatus to paid)
+    if (path.startsWith('admin/users/') && path.endsWith('/approve-payment') && method === 'POST') {
+      const auth = getAuthUser(request);
+      if (!auth || auth.role !== 'admin') return json({ error: 'Forbidden' }, 403);
+      const userId = path.split('/')[2];
+
+      const user = await db.collection('users').findOne({ id: userId });
+      if (!user) return json({ error: 'User not found' }, 404);
+
+      await db.collection('users').updateOne(
+        { id: userId },
+        { $set: { paymentStatus: 'paid', joinedAt: user.joinedAt || new Date() } }
+      );
+
+      return json({ ok: true, message: 'Payment approved successfully' });
     }
 
     // ============ AI SPAM DETECTION ============

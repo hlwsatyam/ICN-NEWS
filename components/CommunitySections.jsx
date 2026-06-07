@@ -100,7 +100,7 @@ const InstagramBox = ({ instagram }) => {
         </div>
         <div className="flex-1 min-w-0">
           <p className="text-white/80 text-xs font-bold uppercase tracking-wider">Follow us on Instagram</p>
-          <p className="text-white text-xl md:text-2xl font-black truncate">{instagram.label || 'Indian Crime News'}</p>
+          <p className="text-white text-xl md:text-2xl font-black truncate">{instagram.label || 'IC News'}</p>
           <p className="text-white/90 text-sm font-semibold">{instagram.handle || '@icnewsmedia'}</p>
         </div>
         <div className="bg-white text-purple-700 px-4 py-2 rounded-full font-bold text-sm shadow-lg hover:bg-zinc-100 transition-colors hidden sm:block">
@@ -396,7 +396,7 @@ export default function CommunitySections({ onJoinClick, hideJoinCTA = false }) 
                 onClick={onJoinClick}
                 className="bg-black hover:bg-zinc-900 text-white font-bold px-6 py-3 rounded-lg shadow-2xl shadow-black/50 border border-white/20 inline-flex items-center gap-2 whitespace-nowrap"
               >
-                <span>✨</span> Join Now — Apply for a Post
+                <span>✨</span> Our team — Join Now
               </button>
             </div>
           </div>
@@ -485,7 +485,7 @@ export const AdminSiteSettings = ({ token }) => {
           <div className="flex-1 space-y-2">
             <div>
               <label className="text-[11px] text-zinc-400 block mb-1">Site Name</label>
-              <Input placeholder="e.g. Indian Crime News" value={s.siteName || ''} onChange={e => update('siteName', e.target.value)} className="bg-zinc-900 border-zinc-800 text-white" />
+              <Input placeholder="e.g. IC News" value={s.siteName || ''} onChange={e => update('siteName', e.target.value)} className="bg-zinc-900 border-zinc-800 text-white" />
             </div>
             <div>
               <label className="text-[11px] text-zinc-400 block mb-1">Tagline (Hindi/English)</label>

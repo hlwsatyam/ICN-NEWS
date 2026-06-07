@@ -1,4 +1,4 @@
-# Indian Crime News - Test Results
+# IC News - Test Results
 
 ## Testing Protocol
 - Always test backend first with `deep_testing_backend_nextjs` before frontend
@@ -274,7 +274,7 @@
         comment: "Page loads, breaking marquee scrolls, 8 cards initial + Load More, state pills clickable → StatePage, category/state filter dropdowns work."
       - working: true
         agent: "testing"
-        comment: "✅ Home page fully functional. Verified: Logo 'Indian Crime News' + tagline 'सच्चाई की आवाज़' visible, LIVE badge with clock and weather in header, Login and 'Join Now' buttons present, Breaking news marquee scrolling with animate-marquee, 'Latest Crime News' heading visible, State quick-nav strip showing 10 state pills (Delhi, Maharashtra, UP, Gujarat, Karnataka, Tamil Nadu, West Bengal, Rajasthan, Bihar, Punjab), 8 news cards rendered in grid with first card featured/larger, each card shows image/category badge/state>district/headline/reporter avatar+name/view count, 'Load More News' button at bottom. Category and State filter dropdowns working (tested with Maharashtra filter). Search filter working. Minor: Filter reset had timeout but core filtering works."
+        comment: "✅ Home page fully functional. Verified: Logo 'IC News' + tagline 'सच्चाई की आवाज़' visible, LIVE badge with clock and weather in header, Login and 'Join Now' buttons present, Breaking news marquee scrolling with animate-marquee, 'Latest Crime News' heading visible, State quick-nav strip showing 10 state pills (Delhi, Maharashtra, UP, Gujarat, Karnataka, Tamil Nadu, West Bengal, Rajasthan, Bihar, Punjab), 8 news cards rendered in grid with first card featured/larger, each card shows image/category badge/state>district/headline/reporter avatar+name/view count, 'Load More News' button at bottom. Category and State filter dropdowns working (tested with Maharashtra filter). Search filter working. Minor: Filter reset had timeout but core filtering works."
 
   - task: "Article detail view - PDF download, WhatsApp share, copy link"
     implemented: true

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Comprehensive Backend API Test Suite for Indian Crime News
+Comprehensive Backend API Test Suite for IC News
 Tests all 23+ endpoints with proper authentication and validation
 """
 
@@ -40,7 +40,7 @@ created_news_id = None
 created_breaking_id = None
 
 print("=" * 80)
-print("INDIAN CRIME NEWS - BACKEND API TEST SUITE")
+print("IC News - BACKEND API TEST SUITE")
 print("=" * 80)
 print(f"Base URL: {BASE_URL}\n")
 

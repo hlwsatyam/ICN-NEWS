@@ -89,7 +89,7 @@ const featureNewsPayment = async (token, news, onSuccess) => {
       key: order.keyId,
       amount: order.amount,
       currency: 'INR',
-      name: 'Indian Crime News',
+      name: 'IC News',
       description: `Feature "${(news.headline || '').slice(0, 40)}" for 24h`,
       order_id: order.orderId,
       handler: async (response) => {
@@ -124,7 +124,7 @@ const featureNewsPayment = async (token, news, onSuccess) => {
 
 // ============ LOGO ============
 // Global site identity (logo URL, site name, tagline) — fetched once at app boot
-let _siteIdentity = { logo: '/branding/icn-logo.png', siteName: 'Indian Crime News', tagline: 'सच्चाई की आवाज़' }
+let _siteIdentity = { logo: '/branding/icn-logo.png', siteName: 'IC News', tagline: 'सच्चाई की आवाज़' }
 const siteIdentityListeners = new Set()
 const useSiteIdentity = () => {
   const [s, setS] = useState(_siteIdentity)
@@ -139,7 +139,7 @@ const refreshSiteIdentity = async () => {
     const r = await fetch(`${API}/site-settings`).then(r => r.json())
     _siteIdentity = {
       logo: r.logo || '/branding/icn-logo.png',
-      siteName: r.siteName || 'Indian Crime News',
+      siteName: r.siteName || 'IC News',
       tagline: r.tagline || 'सच्चाई की आवाज़'
     }
     siteIdentityListeners.forEach(fn => fn(_siteIdentity))
@@ -425,7 +425,7 @@ const AdSlot = ({ slot = 'bottom', reporter, ads }) => {
       <p className="text-zinc-400 text-xs md:text-sm mt-1">For advertisement, contact:</p>
       <p className="text-red-400 font-semibold text-sm mt-1">{reporter?.name || 'Reporter'} {reporter?.mobile && `• ${reporter.mobile}`}</p>
       {reporter?.mobile && (
-        <a href={`https://wa.me/91${reporter.mobile.replace(/\D/g, '').slice(-10)}?text=${encodeURIComponent('Hello, I want to place an advertisement on Indian Crime News.')}`} target="_blank" rel="noopener" className="mt-2">
+        <a href={`https://wa.me/91${reporter.mobile.replace(/\D/g, '').slice(-10)}?text=${encodeURIComponent('Hello, I want to place an advertisement on IC News.')}`} target="_blank" rel="noopener" className="mt-2">
           <Button size="sm" className="bg-green-600 hover:bg-green-700 h-7 text-xs"><MessageCircle className="h-3 w-3 mr-1" /> WhatsApp</Button>
         </a>
       )}
@@ -1065,10 +1065,11 @@ const LoginForm = ({ onLogin, onNav }) => {
 const JoinForm = ({ onLogin, onNav }) => {
   const [step, setStep] = useState(0) // 0=type, 1=location, 2=post-select, 3=profile, 4=pay
   const [joinType, setJoinType] = useState('') // state|district|city
+  const [isChecked, setIsChecked] = useState(false) // For T&C checkbox
   const [location, setLocation] = useState({ state: '', district: '', city: '' })
   const [availablePosts, setAvailablePosts] = useState([])
   const [selectedPost, setSelectedPost] = useState(null)
-  const [postDetail, setPostDetail] = useState(null)
+  const [postDetail, setPostDetail] = useState(null) 
   const [form, setForm] = useState({
     name: '', email: '', password: '', mobile: '', referralCode: '',
     aadhaar: '', pan: '', address: '', bio: '', experience: '',
@@ -1118,10 +1119,56 @@ const JoinForm = ({ onLogin, onNav }) => {
   const handleImg = async (e, field) => {
     const file = e.target.files[0]
     if (!file) return
+    
+    // Limit file size to 500KB for Aadhaar photos, 2MB for others
+    const maxSize = field === 'aadhaarFront' || field === 'aadhaarBack' ? 500 * 1024 : 2 * 1024 * 1024
+    if (file.size > maxSize) {
+      // Compress large images using canvas before encoding
+      try {
+        const dataUrl = await compressImage(file, field === 'aadhaarFront' || field === 'aadhaarBack' ? 800 : 1200)
+        setForm(f => ({ ...f, [field]: dataUrl }))
+        return
+      } catch (err) {
+        toast.error(`${file.name} is too large. Max ${maxSize / 1024 / 1024}MB allowed.`)
+        return
+      }
+    }
+    
     const reader = new FileReader()
     reader.onload = () => setForm(f => ({ ...f, [field]: reader.result }))
     reader.readAsDataURL(file)
   }
+
+// Helper: compress image to reduce file size (defined outside component for performance)
+const compressImage = (file, maxDim) => {
+  return new Promise((resolve, reject) => {
+    const img = new Image()
+    const url = URL.createObjectURL(file)
+    img.onload = () => {
+      URL.revokeObjectURL(url)
+      let w = img.width, h = img.height
+      // Scale down if dimensions exceed maxDim
+      if (w > maxDim || h > maxDim) {
+        const ratio = Math.min(maxDim / w, maxDim / h)
+        w = Math.round(w * ratio)
+        h = Math.round(h * ratio)
+      }
+      const canvas = document.createElement('canvas')
+      canvas.width = w
+      canvas.height = h
+      const ctx = canvas.getContext('2d')  
+      // Handle EXIF orientation by drawing at natural size if available
+      ctx.drawImage(img, 0, 0, w, h)
+      // Use JPEG quality 0.7 to reduce size
+      resolve(canvas.toDataURL('image/jpeg', 0.7))
+    }
+    img.onerror = () => {
+      URL.revokeObjectURL(url)
+      reject(new Error('Failed to load image'))
+    }
+    img.src = url
+  })
+}
 
   const submit = async () => {
     if (!form.name || !form.email || !form.password) { toast.error('Name, email, password required'); return }
@@ -1169,7 +1216,7 @@ const JoinForm = ({ onLogin, onNav }) => {
       script.onload = () => {
         const rzp = new window.Razorpay({
           key: order.keyId, amount: order.amount, currency: 'INR',
-          name: 'Indian Crime News', description: `${selectedPost.name} Joining Fee`,
+          name: 'IC News', description: `${selectedPost.name} Joining Fee`,
           order_id: order.orderId,
           handler: async (resp) => {
             await fetch(`${API}/payment/verify`, {
@@ -1236,14 +1283,44 @@ const JoinForm = ({ onLogin, onNav }) => {
                 requireVillage={joinType === 'city'}
                 level={joinType}
               />
-              {joinType === 'city' && location.district && !(location.city || location.village) && (
+              {/* {joinType === 'city' && location.district && !(location.city || location.village) && (
                 <p className="text-[11px] text-yellow-500 -mt-1">Tip: Type your village/locality above for precise matching. You can still view available posts in this district below.</p>
-              )}
+              )} */}
+
+
+
+
+
+
+
+<div className="flex items-start gap-2 mt-4 text-sm text-zinc-300">
+  <input
+    type="checkbox"
+    checked={isChecked}
+    onChange={() => setIsChecked(c => !c)}
+    
+    
+    className="mt-1 accent-red-600"
+  />
+  <span>
+    I agree to the Terms & Conditions
+    
+  </span>
+</div>
+
+
+
+
+
+
+
+
+
               <div className="flex gap-2">
                 <Button onClick={() => setStep(0)} variant="outline" className="flex-1 border-zinc-800 bg-zinc-900 text-white">← Back</Button>
                 <Button
                   onClick={() => setStep(2)}
-                  disabled={!location.state || (joinType !== 'state' && !location.district)}
+                  disabled= { !isChecked ||  !location.state || (joinType !== 'state' && !location.district)}
                   className="flex-1 bg-red-600 hover:bg-red-700"
                 >
                   View Available Posts →
@@ -1282,16 +1359,14 @@ const JoinForm = ({ onLogin, onNav }) => {
                         >
                           <div className="flex items-center justify-between flex-wrap gap-2">
                             <div className="flex items-center gap-2 min-w-0">
-                              <span className={`inline-flex h-6 min-w-[3rem] px-2 items-center justify-center rounded-md text-[10px] font-black ${isFilled ? 'bg-zinc-800 text-zinc-400' : 'bg-red-700 text-white'}`}>
-                                Seat {seatNo}/{total}
-                              </span>
+                              
                               <p className="font-bold text-white truncate">{p.name}</p>
                             </div>
                             <Badge className="bg-yellow-600">₹{p.joiningFee}</Badge>
                           </div>
                           <p className="text-xs text-zinc-400 mt-1">{p.description?.slice(0, 80)}</p>
                           <div className="flex items-center justify-between mt-2">
-                            <span className="text-xs text-zinc-500">{p.filledSeats || 0}/{total} filled overall</span>
+                          
                             {isFilled
                               ? <Badge className="bg-red-700">⛔ Filled</Badge>
                               : <Badge className="bg-green-700">✅ Open</Badge>}
@@ -1333,6 +1408,11 @@ const JoinForm = ({ onLogin, onNav }) => {
               <div className="bg-green-950/30 border border-green-700 rounded-lg p-2 mb-2">
                 <p className="text-green-300 text-xs">✅ Applying for: <span className="font-bold">{selectedPost?.name}</span> • {[location.state, location.district, location.city].filter(Boolean).join(' › ')} • Fee: ₹{selectedPost?.joiningFee}</p>
               </div>
+
+
+                <p className="text-red-500 text-center text-xs"> {selectedPost?.description}</p>
+
+
               <p className="text-xs text-zinc-500">Basic Information</p>
               <Input placeholder="Full Name *" value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} className="bg-zinc-900 border-zinc-800 text-white" />
               <Input type="email" placeholder="Email *" value={form.email} onChange={e => setForm({ ...form, email: e.target.value })} className="bg-zinc-900 border-zinc-800 text-white" />
@@ -1465,7 +1545,7 @@ const AdCreatorDialog = ({ token, user, onClose }) => {
     script.onload = () => {
       const rzp = new window.Razorpay({
         key: order.keyId, amount: order.amount, currency: 'INR',
-        name: 'Indian Crime News', description: `Advertisement (₹299, covers Middle + Bottom)`,
+        name: 'IC News', description: `Advertisement (₹299, covers Middle + Bottom)`,
         order_id: order.orderId,
         handler: async (resp) => {
           await fetch(`${API}/payment/verify`, {
@@ -1735,8 +1815,43 @@ const Dashboard = ({ user, token }) => {
     window.open(`https://wa.me/?text=${encodeURIComponent(text)}`, '_blank')
   }
 
+  const [pressCardBusy, setPressCardBusy] = useState(false)
+
+  const handlePressCardDownload = async () => {
+    if (pressCardBusy) return
+    setPressCardBusy(true)
+    try {
+      const r = await fetch(`${API}/press-card`, {
+        headers: { Authorization: `Bearer ${token}` }
+      })
+      if (r.ok) {
+        // PDF returned — trigger download
+        const blob = await r.blob()
+        const url = URL.createObjectURL(blob)
+        const a = document.createElement('a')
+        a.href = url
+        a.download = `PressID_${(user.name || 'Reporter').replace(/\s+/g, '_')}.pdf`
+        a.click()
+        URL.revokeObjectURL(url)
+        toast.success('Press ID Card downloaded!')
+      } else {
+        const err = await r.json().catch(() => ({ error: 'Failed to download' }))
+        if (err.noCard) {
+          toast.error('Your Press ID Card has not been issued yet. Please contact the administrator.')
+        } else {
+          toast.error(err.error || 'Failed to download Press ID Card')
+        }
+      }
+    } catch (err) {
+      console.error('Press card download error:', err)
+      toast.error('Failed to download Press ID Card')
+    } finally {
+      setPressCardBusy(false)
+    }
+  }
+
   const downloads = [
-    { name: 'Press ID Card', icon: IdCard, color: 'from-red-600 to-red-800', onClick: () => setShowIdCard(true), info: 'Front + Back • PDF/PNG' },
+    { name: 'Press ID Card', icon: IdCard, color: 'from-red-600 to-red-800', onClick: handlePressCardDownload, info: 'Official • Admin Issued' },
     { name: 'Social Media DP', icon: ImageIcon, color: 'from-purple-600 to-purple-800', onClick: () => setShowDp(true), info: 'Circular • PNG/PDF' },
     { name: 'Joining Letter', icon: FileText, color: 'from-blue-600 to-blue-800', url: `${API}/pdf/certificate/${user.id}`, info: 'PDF' },
     { name: 'Certificate', icon: Award, color: 'from-yellow-600 to-yellow-800', url: `${API}/pdf/certificate/${user.id}`, info: 'PDF' },
@@ -1762,11 +1877,18 @@ const Dashboard = ({ user, token }) => {
               <Badge variant="outline" className="text-zinc-300 border-zinc-700">🎫 {user.referralCode}</Badge>
             </div>
           </div>
-          <Button onClick={() => setCreating(true)} className="bg-red-600 hover:bg-red-700 shadow-lg shadow-red-900/50">
+          {/* <Button onClick={() => setCreating(true)} className="bg-red-600 hover:bg-red-700 shadow-lg shadow-red-900/50">
             <Plus className="h-4 w-4 mr-1" /> Publish News
-          </Button>
+          </Button> */}
         </CardContent>
       </Card>
+
+
+ <Button onClick={() => setCreating(true)} className="bg-red-600 hover:bg-red-700 shadow-lg shadow-red-900/50">
+            <Plus className="h-4 w-4 mr-1" /> Publish News
+          </Button>
+
+
 
       {/* Stats Grid */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
@@ -2998,8 +3120,8 @@ const App = () => {
       <footer className="hidden md:block mt-16 border-t border-zinc-900 bg-black py-8 px-4">
         <div className="max-w-7xl mx-auto text-center space-y-2">
           <Logo />
-          <p className="text-zinc-500 text-sm mt-3">© 2025 Indian Crime News • सच्चाई की आवाज़</p>
-          <p className="text-zinc-600 text-xs">India's biggest crime news network • AI-Powered Journalism</p>
+          <p className="text-zinc-500 text-sm mt-3">© 2025 IC News media house</p>
+          <p className="text-zinc-600 text-xs">India's biggest  news network • No. 1 News Source</p>
         </div>
       </footer>
     </div>

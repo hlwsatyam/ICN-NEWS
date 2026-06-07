@@ -44,7 +44,7 @@ created_faq_id = None
 created_task_id = None
 
 print("=" * 80)
-print("INDIAN CRIME NEWS - NEW FEATURES BACKEND TEST SUITE")
+print("IC News - NEW FEATURES BACKEND TEST SUITE")
 print("=" * 80)
 print(f"Base URL: {BASE_URL}\n")
 
@@ -690,7 +690,7 @@ try:
         f"{BASE_URL}/site-settings",
         headers={"Authorization": f"Bearer {admin_token}"},
         json={
-            "siteName": "Indian Crime News",
+            "siteName": "IC News",
             "tagline": "सच्चाई की आवाज़"
         },
         timeout=10
