@@ -1,0 +1,27 @@
+{
+  "name": "IC News Media House",
+  "short_name": "IC News Media House",
+  "description": "India's biggest news network - real-time crime updates, state-wise coverage",
+  "start_url": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#000000",
+  "theme_color": "#dc2626",
+  "categories": ["news", "media"],
+  "lang": "en-IN",
+ 
+  "icons": [
+    {
+      "src": "/branding/icn-logo.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "/branding/icn-logo.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+ 
+}
